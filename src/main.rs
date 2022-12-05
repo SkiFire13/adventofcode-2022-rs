@@ -1,6 +1,3 @@
-// Makes using `Input` type aliases awkward
-#![allow(clippy::ptr_arg)]
-
 aoc_helper::main!(2022 =>
     day1,
     day2,
