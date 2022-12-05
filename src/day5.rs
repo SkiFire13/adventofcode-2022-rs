@@ -30,23 +30,12 @@ pub fn input_generator(input: &str) -> Input {
     (start_state, moves)
 }
 
-fn get2_mut<T>(s: &mut [T], i: usize, j: usize) -> (&mut T, &mut T) {
-    assert!(i != j && i < s.len() && j < s.len());
-    if i < j {
-        let (start, wj) = s.split_at_mut(j);
-        (&mut start[i], &mut wj[0])
-    } else {
-        let (start, wi) = s.split_at_mut(i);
-        (&mut wi[0], &mut start[j])
-    }
-}
-
 pub fn part1(input: &Input) -> String {
     let (start, moves) = input;
     let mut state = start.clone();
 
     for &(n, from, to) in moves {
-        let (from, to) = get2_mut(&mut state, from - 1, to - 1);
+        let (from, to) = state.get2_mut(from - 1, to - 1);
         to.extend(from.drain(from.len() - n..).rev());
     }
 
@@ -61,7 +50,7 @@ pub fn part2(input: &Input) -> String {
     let mut state = start.clone();
 
     for &(n, from, to) in moves {
-        let (from, to) = get2_mut(&mut state, from - 1, to - 1);
+        let (from, to) = state.get2_mut(from - 1, to - 1);
         to.extend(from.drain(from.len() - n..));
     }
 
