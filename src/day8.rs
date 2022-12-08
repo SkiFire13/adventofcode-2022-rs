@@ -7,100 +7,50 @@ pub fn input_generator(input: &str) -> Input {
 }
 
 pub fn part1(input: &Input) -> usize {
-    let mut g = input.map_ref(|_, _, _| 0);
-    for x in 0..g.width {
-        let mut min = None;
-        let mut y = 0;
-        while min != Some(9) && y < g.height() {
-            if Some(input[(x, y)]) > min {
-                g[(x, y)] = 1;
-                min = Some(input[(x, y)]);
-            }
-            y += 1;
-        }
+    let mut seen = input.map_ref(|_, _, _| false);
 
-        let mut min = None;
-        let mut y = g.height();
-        while min != Some(9) && y > 0 {
-            y -= 1;
-            if Some(input[(x, y)]) > min {
-                g[(x, y)] = 1;
-                min = Some(input[(x, y)]);
+    fn mark(input: &Input, seen: &mut Grid<bool>, iter: impl Iterator<Item = (usize, usize)>) {
+        let mut max = None;
+        for p in iter {
+            if Some(input[p]) > max {
+                seen[p] = true;
+                max = Some(input[p]);
+                if max == Some(9) {
+                    return;
+                }
             }
         }
     }
-    for y in 0..g.height() {
-        let mut min = None;
-        let mut x = 0;
-        while min != Some(9) && x < g.width {
-            if Some(input[(x, y)]) > min {
-                g[(x, y)] = 1;
-                min = Some(input[(x, y)]);
-            }
-            x += 1;
-        }
 
-        let mut min = None;
-        let mut x = g.width;
-        while min != Some(9) && x > 0 {
-            x -= 1;
-            if Some(input[(x, y)]) > min {
-                g[(x, y)] = 1;
-                min = Some(input[(x, y)]);
-            }
-        }
+    for x in 0..input.w() {
+        mark(input, &mut seen, (0..input.h()).map(|y| (x, y)));
+        mark(input, &mut seen, (0..input.h()).rev().map(|y| (x, y)));
     }
-    g.vec.iter().sum()
+    for y in 0..input.h() {
+        mark(input, &mut seen, (0..input.w()).map(|x| (x, y)));
+        mark(input, &mut seen, (0..input.w()).rev().map(|x| (x, y)));
+    }
+
+    seen.vec.iter().filter(|&&s| s).count()
 }
 
 pub fn part2(input: &Input) -> usize {
-    (0..input.width)
-        .flat_map(|x| (0..input.height()).map(move |y| (x, y)))
+    (0..input.w())
+        .flat_map(|x| (0..input.h()).map(move |y| (x, y)))
         .map(|(x, y)| {
-            let mut tot = 1;
-
-            let mut seen = 0;
-            let mut prev = None;
-            let mut yh = y + 1;
-            while prev < Some(input[(x, y)]) && yh < input.height() {
-                seen += 1;
-                prev = Some(input[(x, yh)]);
-                yh += 1;
+            fn seen(input: &Input, iter: impl Clone + Iterator<Item = (usize, usize)>) -> usize {
+                let mut iter = iter;
+                let center = input[iter.next().unwrap()];
+                let smaller = iter.take_while_ref(|&p| input[p] < center).count();
+                let blocking = iter.take(1).count();
+                smaller + blocking
             }
-            tot *= seen;
 
-            let mut seen = 0;
-            let mut prev = None;
-            let mut xh = x + 1;
-            while prev < Some(input[(x, y)]) && xh < input.width {
-                seen += 1;
-                prev = Some(input[(xh, y)]);
-                xh += 1;
-            }
-            tot *= seen;
-
-            let mut seen = 0;
-            let mut prev = None;
-            let mut yh = y;
-            while prev < Some(input[(x, y)]) && yh > 0 {
-                yh -= 1;
-                seen += 1;
-                prev = Some(input[(x, yh)]);
-            }
-            tot *= seen;
-
-            let mut seen = 0;
-            let mut prev = None;
-            let mut xh = x;
-            while prev < Some(input[(x, y)]) && xh > 0 {
-                xh -= 1;
-                seen += 1;
-                prev = Some(input[(xh, y)]);
-            }
-            tot *= seen;
-
-            tot
+            seen(input, (x..input.w()).map(|x| (x, y)))
+                * seen(input, (0..=x).rev().map(|x| (x, y)))
+                * seen(input, (y..input.h()).map(|y| (x, y)))
+                * seen(input, (0..=y).rev().map(|y| (x, y)))
         })
         .max()
-        .unwrap()
+        .expect("Invalid input")
 }
