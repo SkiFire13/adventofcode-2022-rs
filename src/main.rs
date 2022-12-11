@@ -9,7 +9,7 @@ aoc_helper::main!(2022 =>
     day8,
     day9,
     day10,
-    // day11,
+    day11,
     // day12,
     // day13,
     // day14,
