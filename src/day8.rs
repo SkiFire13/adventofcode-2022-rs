@@ -7,13 +7,13 @@ pub fn input_generator(input: &str) -> Input {
 }
 
 pub fn part1(input: &Input) -> usize {
-    let mut seen = input.map_ref(|_, _, _| false);
+    let mut seen = input.to_set(|_, _, _| false);
 
-    fn mark(input: &Input, seen: &mut Grid<bool>, iter: impl Iterator<Item = (usize, usize)>) {
+    fn mark(input: &Input, seen: &mut GridSet, iter: impl Iterator<Item = (usize, usize)>) {
         let mut max = None;
         for p in iter {
             if Some(input[p]) > max {
-                seen[p] = true;
+                seen.insert(p);
                 max = Some(input[p]);
                 if max == Some(9) {
                     return;
@@ -31,7 +31,7 @@ pub fn part1(input: &Input) -> usize {
         mark(input, &mut seen, (0..input.w()).rev().map(|x| (x, y)));
     }
 
-    seen.vec.iter().filter(|&&s| s).count()
+    seen.count()
 }
 
 pub fn part2(input: &Input) -> usize {
