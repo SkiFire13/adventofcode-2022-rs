@@ -59,8 +59,9 @@ pub fn part1(input: &Input) -> usize {
 
 pub fn part2(input: &Input) -> usize {
     let &(start, end, ref grid) = input;
-    let a_points = (0..grid.w())
-        .flat_map(|x| (0..grid.h()).map(move |y| (x, y)))
-        .filter(|&pos| grid[pos] == 0);
+    let a_points = grid
+        .iter()
+        .filter(|&(_, &cell)| cell == 0)
+        .map(|(pos, _)| pos);
     find_shortest_path(grid, end, a_points.chain([start]))
 }

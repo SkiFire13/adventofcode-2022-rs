@@ -35,8 +35,8 @@ pub fn part1(input: &Input) -> usize {
 }
 
 pub fn part2(input: &Input) -> usize {
-    (0..input.w())
-        .flat_map(|x| (0..input.h()).map(move |y| (x, y)))
+    input
+        .iter_by_row()
         .map(|(x, y)| {
             fn seen(input: &Input, iter: impl Clone + Iterator<Item = (usize, usize)>) -> usize {
                 let mut iter = iter;
