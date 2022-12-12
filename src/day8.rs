@@ -41,9 +41,7 @@ pub fn part2(input: &Input) -> usize {
             fn seen(input: &Input, iter: impl Clone + Iterator<Item = (usize, usize)>) -> usize {
                 let mut iter = iter;
                 let center = input[iter.next().unwrap()];
-                let smaller = iter.take_while_ref(|&p| input[p] < center).count();
-                let blocking = iter.take(1).count();
-                smaller + blocking
+                iter.take_while_inclusive(|&p| input[p] < center).count()
             }
 
             seen(input, (x..input.w()).map(|x| (x, y)))
