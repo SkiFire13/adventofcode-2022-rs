@@ -20,24 +20,21 @@ pub fn input_generator(input: &str) -> Input {
     (start, end, grid)
 }
 
-fn find_shortest_path<I>(grid: &Grid<u8>, end: (usize, usize), initial: I) -> usize
+fn find_shortest_path<F>(grid: &Grid<u8>, is_target: F, initial: (usize, usize)) -> usize
 where
-    I: Iterator<Item = (usize, usize)>,
+    F: Fn((usize, usize)) -> bool,
 {
-    let initial = initial.map(|pos| (Reverse(0), pos));
-    let mut queue = BinaryHeap::from_iter(initial);
+    let mut queue = VecDeque::from([(0, initial)]);
     let mut seen = grid.to_set(|_, _, _| false);
 
-    while let Some((Reverse(steps), pos)) = queue.pop() {
-        if seen.insert(pos) {
-            if pos == end {
-                return steps;
-            }
+    while let Some((steps, pos)) = queue.pop_front() {
+        if is_target(pos) {
+            return steps;
+        }
 
-            for new_pos in grid.plus_neighbours(pos) {
-                if grid[new_pos] <= grid[pos] + 1 && !seen.contains(new_pos) {
-                    queue.push((Reverse(steps + 1), new_pos));
-                }
+        for new_pos in grid.plus_neighbours(pos) {
+            if grid[pos] <= grid[new_pos] + 1 && seen.insert(new_pos) {
+                queue.push_back((steps + 1, new_pos));
             }
         }
     }
@@ -47,13 +44,10 @@ where
 
 pub fn part1(input: &Input) -> usize {
     let &(start, end, ref grid) = input;
-    find_shortest_path(grid, end, [start].into_iter())
+    find_shortest_path(grid, |pos| pos == start, end)
 }
 
 pub fn part2(input: &Input) -> usize {
     let &(_, end, ref grid) = input;
-    let a_points = grid
-        .iter()
-        .filter_map(|(pos, &cell)| (cell == b'a').then(|| pos));
-    find_shortest_path(grid, end, a_points)
+    find_shortest_path(grid, |pos| grid[pos] == b'a', end)
 }
