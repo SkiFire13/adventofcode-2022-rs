@@ -32,16 +32,17 @@ where
     };
     let initial = initial.map(|pos| mk_item(0, pos));
     let mut queue = BinaryHeap::from_iter(initial);
-    let mut seen = HashSet::new();
+    let mut seen = grid.map_ref(|_, _, _| false);
 
     while let Some((_, Reverse(steps), pos)) = queue.pop() {
-        if seen.insert(pos) {
+        if !seen[pos] {
+            seen[pos] = true;
             if pos == end {
                 return steps;
             }
 
             for new_pos in grid.plus_neighbours(pos) {
-                if grid[new_pos] <= grid[pos] + 1 {
+                if grid[new_pos] <= grid[pos] + 1 && !seen[new_pos] {
                     queue.push(mk_item(steps + 1, new_pos));
                 }
             }
