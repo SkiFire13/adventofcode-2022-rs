@@ -1,69 +1,57 @@
 #[allow(unused_imports)]
 use super::prelude::*;
-type Input = Vec<Vec<(isize, isize)>>;
+type Input = FxHashSet<(isize, isize)>;
 
 pub fn input_generator(input: &str) -> Input {
     input
         .lines()
-        .map(|line| {
+        .flat_map(|line| {
             line.split(" -> ")
                 .map(|coords| {
                     let (x, y) = coords.split_once(',').expect("Invalid input");
-                    let x = x.parse().expect("Invalid input");
-                    let y = y.parse().expect("Invalid input");
+                    let x = x.parse::<isize>().expect("Invalid input");
+                    let y = y.parse::<isize>().expect("Invalid input");
                     (x, y)
                 })
-                .collect()
+                .tuple_windows()
+        })
+        .flat_map(|(prev, next)| {
+            let xs = min(prev.0, next.0)..=max(prev.0, next.0);
+            let ys = min(prev.1, next.1)..=max(prev.1, next.1);
+            itertools::iproduct!(xs, ys)
         })
         .collect()
 }
 
-fn prepare_filled(input: &Input) -> FxHashSet<(isize, isize)> {
-    let mut filled = FxHashSet::default();
-    for line in input {
-        let mut curr = line[0];
-        for &next in &line[1..] {
-            let xs = min(curr.0, next.0)..=max(curr.0, next.0);
-            let ys = min(curr.1, next.1)..=max(curr.1, next.1);
-            filled.extend(itertools::iproduct!(xs, ys));
-            curr = next;
-        }
-    }
-    filled
-}
-
 fn solve<const FLOOR_PRESENT: bool>(input: &Input) -> usize {
-    let mut filled = prepare_filled(input);
+    let mut filled = input.clone();
     let max_y = filled.iter().map(|&(_, y)| y).max().unwrap();
+    let wall_count = filled.len();
 
-    let mut sand_count = 0;
-    while !FLOOR_PRESENT || !filled.contains(&(500, 0)) {
-        let mut sand_pos = (500, 0);
-        'sand: loop {
-            if !FLOOR_PRESENT && sand_pos.1 == max_y {
-                return sand_count;
-            }
+    fn solve_rec<const FLOOR_PRESENT: bool>(
+        (x, y): (isize, isize),
+        filled: &mut FxHashSet<(isize, isize)>,
+        max_y: isize,
+    ) -> ControlFlow<()> {
+        if !FLOOR_PRESENT && y == max_y {
+            return ControlFlow::Break(());
+        }
 
-            if FLOOR_PRESENT && sand_pos.1 == max_y + 1 {
-                filled.insert(sand_pos);
-                sand_count += 1;
-                break;
-            }
-
+        if !(FLOOR_PRESENT && y == max_y + 1) {
             for (dx, dy) in [(0, 1), (-1, 1), (1, 1)] {
-                let new_pos = (sand_pos.0 + dx, sand_pos.1 + dy);
-                if !filled.contains(&new_pos) {
-                    sand_pos = new_pos;
-                    continue 'sand;
+                let next = (x + dx, y + dy);
+                if !filled.contains(&next) {
+                    solve_rec::<FLOOR_PRESENT>(next, filled, max_y)?;
                 }
             }
-
-            filled.insert(sand_pos);
-            sand_count += 1;
-            break;
         }
+
+        filled.insert((x, y));
+        ControlFlow::Continue(())
     }
-    sand_count
+
+    solve_rec::<FLOOR_PRESENT>((500, 0), &mut filled, max_y);
+    filled.len() - wall_count
 }
 
 pub fn part1(input: &Input) -> usize {
