@@ -53,24 +53,33 @@ pub fn part1(input: &Input) -> usize {
 }
 
 pub fn part2(input: &Input) -> usize {
-    (0..=4000000)
-        .into_par_iter()
-        .find_map_any(|row_target| {
-            let mut last_end = 0;
-            input
-                .iter()
-                .filter_map(|&((sx, sy), (bx, by))| {
-                    let db = isize::abs_diff(sx, bx) + isize::abs_diff(sy, by);
-                    let drow = isize::abs_diff(sy, row_target);
-                    let slack = db.checked_sub(drow)? as isize;
-                    Some((sx - slack, sx + slack + 1))
-                })
-                .sorted_unstable_by_key(|&(s, e)| (s, Reverse(e)))
-                .find_map(|(start, end)| {
-                    let v = (last_end < start).then(|| (last_end * 4000000 + row_target) as usize);
-                    last_end = max(end, last_end);
-                    v
-                })
-        })
-        .expect("Invalid input")
+    let mut stack = vec![((0, 0), (4000000, 4000000))];
+
+    while let Some(((minx, miny), (w, h))) = stack.pop() {
+        if w == 0 || h == 0 {
+            continue;
+        }
+
+        if input.iter().any(|&((sx, sy), (bx, by))| {
+            let db = isize::abs_diff(sx, bx) + isize::abs_diff(sy, by);
+            [(0, 0), (0, h - 1), (w - 1, 0), (w - 1, h - 1)]
+                .into_iter()
+                .map(|(dx, dy)| isize::abs_diff(sx, minx + dx) + isize::abs_diff(sy, miny + dy))
+                .all(|dc| dc <= db)
+        }) {
+            continue;
+        }
+
+        if w == 1 && h == 1 {
+            return (minx * 4000000 + miny) as usize;
+        }
+
+        let (w1, w2, h1, h2) = (w / 2, (w + 1) / 2, h / 2, (h + 1) / 2);
+        stack.push(((minx, miny), (w1, h1)));
+        stack.push(((minx + w1, miny), (w2, h1)));
+        stack.push(((minx, miny + h1), (w1, h2)));
+        stack.push(((minx + w1, miny + h1), (w2, h2)));
+    }
+
+    panic!("Invalid input")
 }
