@@ -23,67 +23,54 @@ pub fn input_generator(input: &str) -> Input {
 pub fn part1(input: &Input) -> usize {
     const ROW_TARGET: isize = 2000000;
 
-    let mut invalid_ranges = Vec::new();
-    let mut beacons = Vec::new();
-    for &((sx, sy), (bx, by)) in input {
-        let db = isize::abs_diff(sx, bx) + isize::abs_diff(sy, by);
-        let drow = isize::abs_diff(sy, ROW_TARGET);
-        if let Some(slack) = db.checked_sub(drow) {
-            let slack = slack as isize;
-            invalid_ranges.push((sx - slack, sx + slack + 1));
-        }
-        if by == ROW_TARGET {
-            beacons.push(bx);
-        }
-    }
-
-    invalid_ranges.sort_unstable_by_key(|&(s, e)| (s, Reverse(e)));
-    beacons.sort_unstable();
-    beacons.dedup();
-
-    let mut beacons = &beacons[..];
     let mut last_end = isize::MIN;
-    let mut count = 0;
 
-    for (start, end) in invalid_ranges {
-        if last_end >= end {
-            continue;
-        }
-        let start = max(last_end, start);
-        last_end = end;
+    let reachable = input
+        .iter()
+        .filter_map(|&((sx, sy), (bx, by))| {
+            let db = isize::abs_diff(sx, bx) + isize::abs_diff(sy, by);
+            let drow = isize::abs_diff(sy, ROW_TARGET);
+            let slack = db.checked_sub(drow)? as isize;
+            Some((sx - slack, sx + slack + 1))
+        })
+        .sorted_unstable_by_key(|&(s, e)| (s, Reverse(e)))
+        .map(|(start, end)| {
+            let start = max(last_end, start);
+            let end = max(last_end, end);
+            last_end = end;
+            (end - start) as usize
+        })
+        .sum::<usize>();
 
-        eat_while(&mut beacons, |&b| b < start);
-        let removed = eat_while(&mut beacons, |&b| b < end);
+    let beacons = input
+        .iter()
+        .filter(|&&(_, (_, by))| by == ROW_TARGET)
+        .map(|(_, (bx, _))| bx)
+        .unique()
+        .count();
 
-        count += (end - start) as usize - removed.len();
-    }
-
-    count
+    reachable - beacons
 }
 
 pub fn part2(input: &Input) -> usize {
-    for row_target in 0..=4000000 {
-        let mut invalid_ranges = Vec::new();
-        for &((sx, sy), (bx, by)) in input {
-            let db = isize::abs_diff(sx, bx) + isize::abs_diff(sy, by);
-            let drow = isize::abs_diff(sy, row_target);
-            if let Some(slack) = db.checked_sub(drow) {
-                let slack = slack as isize;
-                invalid_ranges.push((sx - slack, sx + slack + 1));
-            }
-        }
-
-        invalid_ranges.sort_unstable_by_key(|&(s, e)| (s, Reverse(e)));
-
-        let mut last_end = 0;
-
-        for (start, end) in invalid_ranges {
-            if last_end < start {
-                return (last_end * 4000000 + row_target) as usize;
-            }
-            last_end = max(end, last_end);
-        }
-    }
-
-    panic!("Invalid input")
+    (0..=4000000)
+        .into_par_iter()
+        .find_map_any(|row_target| {
+            let mut last_end = 0;
+            input
+                .iter()
+                .filter_map(|&((sx, sy), (bx, by))| {
+                    let db = isize::abs_diff(sx, bx) + isize::abs_diff(sy, by);
+                    let drow = isize::abs_diff(sy, row_target);
+                    let slack = db.checked_sub(drow)? as isize;
+                    Some((sx - slack, sx + slack + 1))
+                })
+                .sorted_unstable_by_key(|&(s, e)| (s, Reverse(e)))
+                .find_map(|(start, end)| {
+                    let v = (last_end < start).then(|| (last_end * 4000000 + row_target) as usize);
+                    last_end = max(end, last_end);
+                    v
+                })
+        })
+        .expect("Invalid input")
 }
