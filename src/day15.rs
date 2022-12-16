@@ -53,33 +53,26 @@ pub fn part1(input: &Input) -> usize {
 }
 
 pub fn part2(input: &Input) -> usize {
-    let mut stack = vec![((0, 0), (4000000, 4000000))];
+    let (sums, diffs): (Vec<_>, Vec<_>) = input
+        .iter()
+        .flat_map(|&((sx, sy), (bx, by))| {
+            let db = isize::abs(sx - bx) + isize::abs(sy - by);
+            let upper = (sx + sy + db + 1, sx - sy + db + 1);
+            let lower = (sx + sy - db - 1, sx - sy - db - 1);
+            [upper, lower]
+        })
+        .unzip();
 
-    while let Some(((minx, miny), (w, h))) = stack.pop() {
-        if w == 0 || h == 0 {
-            continue;
-        }
-
-        if input.iter().any(|&((sx, sy), (bx, by))| {
-            let db = isize::abs_diff(sx, bx) + isize::abs_diff(sy, by);
-            [(0, 0), (0, h - 1), (w - 1, 0), (w - 1, h - 1)]
-                .into_iter()
-                .map(|(dx, dy)| isize::abs_diff(sx, minx + dx) + isize::abs_diff(sy, miny + dy))
-                .all(|dc| dc <= db)
-        }) {
-            continue;
-        }
-
-        if w == 1 && h == 1 {
-            return (minx * 4000000 + miny) as usize;
-        }
-
-        let (w1, w2, h1, h2) = (w / 2, (w + 1) / 2, h / 2, (h + 1) / 2);
-        stack.push(((minx, miny), (w1, h1)));
-        stack.push(((minx + w1, miny), (w2, h1)));
-        stack.push(((minx, miny + h1), (w1, h2)));
-        stack.push(((minx + w1, miny + h1), (w2, h2)));
-    }
-
-    panic!("Invalid input")
+    itertools::iproduct!(&sums, &diffs)
+        .map(|(&sum, &diff)| ((sum + diff) / 2, (sum - diff) / 2))
+        .filter(|&(x, y)| 0 <= x && x <= 4000000 && 0 <= y && y <= 4000000)
+        .find(|&(x, y)| {
+            input.iter().all(|&((sx, sy), (bx, by))| {
+                let db = isize::abs(sx - bx) + isize::abs(sy - by);
+                let dc = isize::abs(sx - x) + isize::abs(sy - y);
+                dc > db
+            })
+        })
+        .map(|(x, y)| (4000000 * x + y) as usize)
+        .expect("Invalid input")
 }
