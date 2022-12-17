@@ -4,10 +4,10 @@ type Input = Vec<isize>;
 
 pub fn input_generator(input: &str) -> Input {
     input
-        .chars()
-        .map(|line| match line {
-            '>' => 1,
-            '<' => -1,
+        .bytes()
+        .map(|b| match b {
+            b'>' => 1,
+            b'<' => -1,
             _ => panic!("Invalid input"),
         })
         .collect()
@@ -17,8 +17,9 @@ fn solve<const CACHE: bool>(input: &Input, n: usize) -> usize {
     let mut rocks = Vec::from([0u8; 7]);
     let mut maxy = 0;
 
+    let mut prev_min_y = 0;
+    let mut curr_relations = Vec::new();
     let mut cache = HashMap::new();
-    let mut prev_rock: Option<[(isize, usize); 5]> = None;
     let mut maxy_offset = 0;
 
     let mut i = 0;
@@ -35,9 +36,11 @@ fn solve<const CACHE: bool>(input: &Input, n: usize) -> usize {
         ][i % 5];
         rock.iter_mut().for_each(|(_, y)| *y += maxy + 3);
 
+        let input_iteration_before = input_idx / input.len();
+
         loop {
-            let dx = input[input_idx];
-            input_idx = (input_idx + 1) % input.len();
+            let dx = input[input_idx % input.len()];
+            input_idx += 1;
 
             if rock
                 .iter()
@@ -51,11 +54,8 @@ fn solve<const CACHE: bool>(input: &Input, n: usize) -> usize {
                 .iter()
                 .any(|&(x, y)| y == 0 || rocks[y - 1] & (1 << x) != 0)
             {
-                for (x, y) in rock {
-                    rocks[y] |= 1 << x;
-                    maxy = max(maxy, y + 1);
-                }
-
+                rock.iter().for_each(|&(x, y)| rocks[y] |= 1 << x);
+                maxy = max(maxy, 1 + rock.iter().map(|&(_, y)| y).max().unwrap());
                 break;
             }
 
@@ -63,22 +63,21 @@ fn solve<const CACHE: bool>(input: &Input, n: usize) -> usize {
         }
 
         if CACHE {
-            // I have absolutely no idea why this works, but it does for my input so...
-            if let Some(prev_rock) = prev_rock.replace(rock) {
-                if rock.iter().all(|&(x, y)| {
-                    prev_rock.contains(&(x, y - 1)) == (rocks[y - 1] & (1 << x) != 0)
-                }) {
-                    let min = rock.iter().map(|&(_, y)| y).min().unwrap();
-                    rock.iter_mut().for_each(|(_, y)| *y -= min);
+            let curr_min_y = rock.iter().map(|&(_, y)| y).min().unwrap() as isize;
+            let curr_min_x = rock.iter().map(|&(x, _)| x).min().unwrap();
+            curr_relations.push((curr_min_x, curr_min_y - prev_min_y));
+            prev_min_y = curr_min_y;
 
-                    if let Some(&(cached_i, cached_maxy)) = cache.get(&(rock, input_idx)) {
-                        let steps = i - cached_i;
-                        let cycles = (n - i - 1) / steps;
-                        i += cycles * steps;
-                        maxy_offset += cycles * (maxy - cached_maxy);
-                    }
-                    cache.insert((rock, input_idx), (i, maxy));
+            let input_iteration_after = input_idx / input.len();
+            if input_iteration_after > input_iteration_before {
+                let key = (i % 5, input_idx % input.len(), take(&mut curr_relations));
+                if let Some(&(cached_i, cached_maxy)) = cache.get(&key) {
+                    let steps = i - cached_i;
+                    let cycles = (n - i - 1) / steps;
+                    i += cycles * steps;
+                    maxy_offset += cycles * (maxy - cached_maxy);
                 }
+                cache.insert(key, (i, maxy));
             }
         }
 
