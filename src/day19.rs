@@ -27,12 +27,12 @@ pub fn input_generator(input: &str) -> Input {
             let geode_obs_cost = geode_obs_cost.parse().expect("Invalid input");
             BluePrint {
                 id,
-                ore_ore_cost,
-                clay_ore_cost,
-                obs_ore_cost,
-                obs_clay_cost,
-                geode_ore_cost,
-                geode_obs_cost,
+                costs: [
+                    [ore_ore_cost, 0, 0, 0],
+                    [clay_ore_cost, 0, 0, 0],
+                    [obs_ore_cost, obs_clay_cost, 0, 0],
+                    [geode_ore_cost, 0, geode_obs_cost, 0],
+                ],
             }
         })
         .collect()
@@ -40,171 +40,103 @@ pub fn input_generator(input: &str) -> Input {
 
 pub struct BluePrint {
     id: usize,
-    ore_ore_cost: u16,
-    clay_ore_cost: u16,
-    obs_ore_cost: u16,
-    obs_clay_cost: u16,
-    geode_ore_cost: u16,
-    geode_obs_cost: u16,
+    costs: [[u16; 4]; 4],
 }
 
 fn solve(blueprint: &BluePrint, time: u16) -> usize {
-    let &BluePrint {
-        id: _,
-        ore_ore_cost,
-        clay_ore_cost,
-        obs_ore_cost,
-        obs_clay_cost,
-        geode_ore_cost,
-        geode_obs_cost,
-    } = blueprint;
+    let &BluePrint { id: _, costs } = blueprint;
 
-    let max_ore_cost = max(clay_ore_cost, max(obs_ore_cost, geode_obs_cost));
-    let max_clay_cost = obs_clay_cost;
-    let max_obs_cost = geode_obs_cost;
+    let mut max_costs: [_; 4] = array::from_fn(|i| (0..4).map(|j| costs[j][i]).max().unwrap());
+    max_costs[3] = u16::MAX;
 
     #[derive(Clone, Copy, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
     struct Entry {
         upper_bound: u16,
-        geode: u16,
         time: u16,
-        obs_miners: u16,
-        clay_miners: u16,
-        ore_miners: u16,
-        ore: u16,
-        clay: u16,
-        obs: u16,
+        ores: [u16; 4],
+        robots: [u16; 4],
     }
 
-    let initial = Entry { upper_bound: 1, time, ore_miners: 1, ..Default::default() };
+    let mut initial = Entry { upper_bound: 1, time, ..Default::default() };
+    initial.robots[0] = 1;
     let mut stack = Vec::from([initial]);
-    let mut seen = HashSet::new();
-
     let mut best = 0;
 
     while let Some(entry) = stack.pop() {
-        if entry.upper_bound as usize <= best || !seen.insert(entry) {
+        let Entry { upper_bound, time, ores, robots } = entry;
+
+        if upper_bound <= best {
             continue;
         }
 
-        if entry.time == 0
-            || (entry.ore >= geode_ore_cost
-                && entry.obs >= geode_obs_cost
-                && entry.ore_miners >= geode_ore_cost
-                && entry.obs_miners >= geode_obs_cost)
-        {
-            best = max(best, entry.upper_bound as usize);
-            continue;
-        }
+        best = max(best, ores[3] + robots[3] * time);
 
-        let mut new_entry = entry;
-        new_entry.ore += entry.ore_miners;
-        new_entry.clay += entry.clay_miners;
-        new_entry.obs += entry.obs_miners;
-        (entry.ore_miners == max_ore_cost).then(|| new_entry.ore = max_ore_cost);
-        (entry.clay_miners == max_clay_cost).then(|| new_entry.clay = max_clay_cost);
-        (entry.obs_miners == max_obs_cost).then(|| new_entry.obs = max_obs_cost);
-
-        new_entry.time -= 1;
-
-        new_entry.upper_bound = {
-            let mut ore_for_ore = new_entry.ore;
-            let mut ore_for_clay = new_entry.ore;
-            let mut ore_for_obs = new_entry.ore;
-            let mut ore_for_geode = new_entry.ore;
-            let mut ore_miners = new_entry.ore_miners;
-            let mut clay_for_obs = new_entry.clay;
-            let mut clay_miners = new_entry.clay_miners;
-            let mut obs_for_geode = new_entry.obs;
-            let mut obs_miners = new_entry.obs_miners;
-            let mut geode = new_entry.geode;
-            for i in (0..new_entry.time).rev() {
-                ore_for_ore += ore_miners;
-                ore_for_clay += ore_miners;
-                ore_for_obs += ore_miners;
-                ore_for_geode += ore_miners;
-                clay_for_obs += clay_miners;
-                obs_for_geode += obs_miners;
-                if ore_for_ore >= ore_ore_cost {
-                    ore_for_ore -= ore_ore_cost;
-                    ore_miners += 1;
-                }
-                if ore_for_clay >= clay_ore_cost {
-                    ore_for_clay -= clay_ore_cost;
-                    clay_miners += 1;
-                }
-                if ore_for_obs >= obs_ore_cost && clay_for_obs >= obs_clay_cost {
-                    ore_for_obs -= obs_ore_cost;
-                    clay_for_obs -= obs_clay_cost;
-                    obs_miners += 1;
-                }
-                if ore_for_geode >= geode_ore_cost && obs_for_geode >= geode_obs_cost {
-                    ore_for_geode -= geode_ore_cost;
-                    obs_for_geode -= geode_obs_cost;
-                    geode += i;
-                }
-            }
-            geode
-        };
-
-        if new_entry.time == 0
-            || entry.ore < max_ore_cost
-            || entry.clay < max_clay_cost
-            || entry.obs < max_obs_cost
-        {
-            stack.push(new_entry)
-        };
-
-        if new_entry.time > 0 {
-            if entry.ore >= ore_ore_cost && entry.ore_miners < max_ore_cost {
-                let mut new_entry = new_entry;
-                new_entry.ore_miners += 1;
-                new_entry.ore -= ore_ore_cost;
-                stack.push(new_entry);
+        for i in 0..4 {
+            if robots[i] == max_costs[i] {
+                continue;
             }
 
-            if entry.ore >= clay_ore_cost && entry.clay_miners < max_clay_cost {
-                let mut new_entry = new_entry;
-                new_entry.clay_miners += 1;
-                new_entry.ore -= clay_ore_cost;
-                stack.push(new_entry);
+            let wait = (0..3)
+                .map(|j| match () {
+                    _ if costs[i][j] <= ores[j] => 0,
+                    _ if robots[j] == 0 => time,
+                    _ => 1 + (costs[i][j] - ores[j] - 1) / robots[j],
+                })
+                .max()
+                .unwrap();
+            if wait + 1 >= time {
+                continue;
             }
 
-            if entry.ore >= obs_ore_cost
-                && entry.clay >= obs_clay_cost
-                && entry.obs_miners < max_obs_cost
-            {
-                let mut new_entry = new_entry;
-                new_entry.obs_miners += 1;
-                new_entry.ore -= obs_ore_cost;
-                new_entry.clay -= obs_clay_cost;
-                stack.push(new_entry);
+            let mut new_entry = entry;
+            for j in 0..4 {
+                new_entry.ores[j] = new_entry.ores[j] + robots[j] * (wait + 1) - costs[i][j];
+                (robots[j] >= max_costs[j]).then(|| new_entry.ores[j] = max_costs[j]);
             }
+            new_entry.time -= wait + 1;
+            new_entry.robots[i] += 1;
+            new_entry.upper_bound = {
+                let mut ores = [new_entry.ores; 4];
+                let mut robots = new_entry.robots;
 
-            if entry.ore >= geode_ore_cost && entry.obs >= geode_obs_cost {
-                let mut new_entry = new_entry;
-                new_entry.upper_bound += new_entry.time;
-                new_entry.geode += new_entry.time;
-                new_entry.ore -= geode_ore_cost;
-                new_entry.obs -= geode_obs_cost;
+                for _ in 0..new_entry.time {
+                    let mut new_ores = ores;
+                    for i in 0..4 {
+                        for j in 0..4 {
+                            new_ores[i][j] += robots[j];
+                        }
+                    }
+                    for i in 0..4 {
+                        if (0..3).all(|j| ores[i][j] >= costs[i][j]) {
+                            (0..3).for_each(|j| new_ores[i][j] -= costs[i][j]);
+                            robots[i] += 1;
+                        }
+                    }
+                    ores = new_ores;
+                }
+
+                ores[0][3]
+            };
+
+            if new_entry.upper_bound > best {
                 stack.push(new_entry);
             }
         }
     }
 
-    best
+    best as usize
 }
 
 pub fn part1(input: &Input) -> usize {
     input
-        .par_iter()
+        .iter()
         .map(|blueprint| blueprint.id * solve(blueprint, 24))
         .sum()
 }
 
 pub fn part2(input: &Input) -> usize {
     input[..3]
-        .par_iter()
+        .iter()
         .map(|blueprint| solve(blueprint, 32))
         .product()
 }
