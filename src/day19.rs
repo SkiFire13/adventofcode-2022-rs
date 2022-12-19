@@ -107,27 +107,45 @@ fn solve(blueprint: &BluePrint, time: u16) -> usize {
 
         new_entry.time -= 1;
 
-        let add_upper_bound = |miners, limiting_factors: &[_]| {
-            let time = new_entry.time;
-            let &miners_upper_bound = limiting_factors.iter().chain([&time]).min().unwrap();
-            miners * time
-                + miners_upper_bound * miners_upper_bound.saturating_sub(1) / 2
-                + miners_upper_bound * (time - miners_upper_bound)
+        new_entry.upper_bound = {
+            let mut ore_for_ore = new_entry.ore;
+            let mut ore_for_clay = new_entry.ore;
+            let mut ore_for_obs = new_entry.ore;
+            let mut ore_for_geode = new_entry.ore;
+            let mut ore_miners = new_entry.ore_miners;
+            let mut clay_for_obs = new_entry.clay;
+            let mut clay_miners = new_entry.clay_miners;
+            let mut obs_for_geode = new_entry.obs;
+            let mut obs_miners = new_entry.obs_miners;
+            let mut geode = new_entry.geode;
+            for i in (0..new_entry.time).rev() {
+                ore_for_ore += ore_miners;
+                ore_for_clay += ore_miners;
+                ore_for_obs += ore_miners;
+                ore_for_geode += ore_miners;
+                clay_for_obs += clay_miners;
+                obs_for_geode += obs_miners;
+                if ore_for_ore >= ore_ore_cost {
+                    ore_for_ore -= ore_ore_cost;
+                    ore_miners += 1;
+                }
+                if ore_for_clay >= clay_ore_cost {
+                    ore_for_clay -= clay_ore_cost;
+                    clay_miners += 1;
+                }
+                if ore_for_obs >= obs_ore_cost && clay_for_obs >= obs_clay_cost {
+                    ore_for_obs -= obs_ore_cost;
+                    clay_for_obs -= obs_clay_cost;
+                    obs_miners += 1;
+                }
+                if ore_for_geode >= geode_ore_cost && obs_for_geode >= geode_obs_cost {
+                    ore_for_geode -= geode_ore_cost;
+                    obs_for_geode -= geode_obs_cost;
+                    geode += i;
+                }
+            }
+            geode
         };
-
-        let ore_upper_bound = new_entry.ore + add_upper_bound(new_entry.ore_miners, &[]);
-        let clay_upper_bound = new_entry.clay
-            + add_upper_bound(new_entry.clay_miners, &[ore_upper_bound / clay_ore_cost]);
-        let obs_limiting = &[
-            ore_upper_bound / obs_ore_cost,
-            clay_upper_bound / obs_clay_cost,
-        ];
-        let obs_upper_bound = new_entry.obs + add_upper_bound(new_entry.obs_miners, obs_limiting);
-        let geode_limiting = &[
-            ore_upper_bound / geode_ore_cost,
-            obs_upper_bound / geode_obs_cost,
-        ];
-        new_entry.upper_bound = new_entry.geode + add_upper_bound(0, geode_limiting);
 
         if new_entry.time == 0
             || entry.ore < max_ore_cost
