@@ -20,7 +20,7 @@ aoc_helper::main!(2022 =>
     day19,
     day20,
     day21,
-    // day22,
+    day22,
     // day23,
     // day24,
     // day25,
