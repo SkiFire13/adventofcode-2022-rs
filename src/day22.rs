@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use super::prelude::*;
-type Input = (Grid<Tile>, Vec<Movement>);
+type Input = (Grid<Tile>, Vec<Instruction>);
 
 #[derive(PartialEq, Eq)]
 pub enum Tile {
@@ -9,8 +9,8 @@ pub enum Tile {
     Wall,
 }
 
-pub enum Movement {
-    Move(isize),
+pub enum Instruction {
+    Step(isize),
     Turn(isize),
 }
 
@@ -19,14 +19,19 @@ const SOUTH: (isize, isize) = (0, 1);
 const WEST: (isize, isize) = (-1, 0);
 const EAST: (isize, isize) = (1, 0);
 
-const LEFT: isize = 1;
-const RIGHT: isize = -1;
+const TURN_LEFT: isize = 1;
+const TURN_RIGHT: isize = -1;
+
+const TOP: usize = 0;
+const RIGHT: usize = 1;
+const BOTTOM: usize = 2;
+const LEFT: usize = 3;
 
 pub fn input_generator(input: &str) -> Input {
-    let (map, directions) = input.split_once("\n\n").unwrap();
+    let (map, raw_instructions) = input.split_once("\n\n").expect("Invalid input");
 
     let map = map.lines().map(str::as_bytes).collect::<Vec<_>>();
-    let map_width = map.iter().map(|bs| bs.len()).max().unwrap();
+    let map_width = map.iter().map(|bs| bs.len()).max().expect("Invalid input");
     let map_height = map.len();
 
     let map = Grid::with_dimensions_init(map_width, map_height, |x, y| {
@@ -34,218 +39,160 @@ pub fn input_generator(input: &str) -> Input {
             b' ' => Tile::Void,
             b'.' => Tile::Empty,
             b'#' => Tile::Wall,
-            _ => panic!(),
+            _ => panic!("Invalid input"),
         }
     });
 
-    let mut movements = Vec::new();
-
-    let mut directions = directions.as_bytes();
-    loop {
-        let movement = eat_while(&mut directions, |n| n.is_ascii_digit());
-        movements.push(Movement::Move(
-            movement
-                .iter()
-                .fold(0, |acc, d| acc * 10 + (d - b'0') as isize),
-        ));
-
-        if directions.is_empty() {
-            break;
-        }
-
-        match eat_copy(&mut directions) {
-            b'L' => movements.push(Movement::Turn(LEFT)),
-            b'R' => movements.push(Movement::Turn(RIGHT)),
-            _ => panic!(),
+    let mut instructions = Vec::new();
+    for instr in raw_instructions.split_inclusive(&['L', 'R']) {
+        let steps = instr
+            .strip_suffix(&['L', 'R'])
+            .unwrap_or(instr)
+            .parse()
+            .expect("Invalid input");
+        instructions.push(Instruction::Step(steps));
+        match instr.chars().next_back().expect("Invalid input") {
+            'L' => instructions.push(Instruction::Turn(TURN_LEFT)),
+            'R' => instructions.push(Instruction::Turn(TURN_RIGHT)),
+            _ => {}
         }
     }
 
-    (map, movements)
+    (map, instructions)
 }
 
-pub fn part1(input: &Input) -> isize {
-    let (grid, directions) = input;
-    let xbounds = (0..grid.w())
-        .map(|x| {
-            (0..grid.h())
-                .filter(|&y| grid[(x, y)] != Tile::Void)
-                .minmax()
-                .into_option()
-                .map(|(miny, maxy)| (miny as isize, maxy as isize))
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-    let ybounds = (0..grid.h())
-        .map(|y| {
-            (0..grid.w())
-                .filter(|&x| grid[(x, y)] != Tile::Void)
-                .minmax()
-                .into_option()
-                .map(|(minx, maxx)| (minx as isize, maxx as isize))
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
+const SQUARE_SIDE: usize = 50;
 
-    let mut dir = EAST;
-    let mut pos = (ybounds[0].0, 0);
-    while grid[pos] != Tile::Empty {
-        pos.0 += 1;
-    }
+fn identify_squares(grid: &Grid<Tile>) -> ([(usize, usize); 6], Grid<usize>) {
+    let width = grid.w() / SQUARE_SIDE;
+    let height = grid.h() / SQUARE_SIDE;
 
-    for movement in directions {
-        match movement {
-            &Movement::Turn(d) => {
-                dir = (d * dir.1, -d * dir.0);
-            }
-            &Movement::Move(n) => {
+    let square_positions_iter = itertools::iproduct!(0..height, 0..width)
+        .map(|(y, x)| (x, y))
+        .filter(|&(x, y)| grid[(x * SQUARE_SIDE, y * SQUARE_SIDE)] != Tile::Void);
+    let squares_positions = <[(usize, usize); 6]>::from_iter(square_positions_iter);
+    let squares_grid = Grid::with_dimensions_init(width, height, |x, y| {
+        (0..6)
+            .find(|&i| squares_positions[i] == (x, y))
+            .unwrap_or(6)
+    });
+    (squares_positions, squares_grid)
+}
+
+fn simulate_with_edges(
+    input: &Input,
+    squares_positions: [(usize, usize); 6],
+    edges: [[(usize, usize); 4]; 6],
+) -> usize {
+    let (grid, instructions) = input;
+
+    let map_pos = |(x, y, side)| {
+        let (x, y) = (x as usize, y as usize);
+        let (side_x, side_y) = squares_positions[side];
+        (side_x * SQUARE_SIDE + x, side_y * SQUARE_SIDE + y)
+    };
+
+    let (mut pos, mut dir) = ((0, 0, 0), EAST);
+    for instr in instructions {
+        match instr {
+            &Instruction::Turn(d) => dir = (d * dir.1, -d * dir.0),
+            &Instruction::Step(n) => {
                 for _ in 0..n {
-                    let next = match dir {
-                        EAST if ybounds[pos.1 as usize].1 == pos.0 => {
-                            (ybounds[pos.1 as usize].0, pos.1)
-                        }
-                        WEST if ybounds[pos.1 as usize].0 == pos.0 => {
-                            (ybounds[pos.1 as usize].1, pos.1)
-                        }
-                        SOUTH if xbounds[pos.0 as usize].1 == pos.1 => {
-                            (pos.0, xbounds[pos.0 as usize].0)
-                        }
-                        NORTH if xbounds[pos.0 as usize].0 == pos.1 => {
-                            (pos.0, xbounds[pos.0 as usize].1)
-                        }
-                        _ => (pos.0 + dir.0, pos.1 + dir.1),
+                    let max_side = SQUARE_SIDE as isize - 1;
+                    let (x, y, square) = pos;
+                    let (next_x, next_y, (next_square, next_rot)) = match dir {
+                        EAST if x == max_side => (0, y, edges[square][RIGHT]),
+                        WEST if x == 0 => (max_side, y, edges[square][LEFT]),
+                        SOUTH if y == max_side => (x, 0, edges[square][BOTTOM]),
+                        NORTH if y == 0 => (x, max_side, edges[square][TOP]),
+                        _ => (x + dir.0, y + dir.1, (square, 0)),
                     };
-
-                    if grid[next] == Tile::Wall {
+                    let (next_x, next_y, next_dir) = match next_rot {
+                        0 => (next_x, next_y, dir),
+                        1 => (next_y, max_side - next_x, (dir.1, -dir.0)),
+                        2 => (max_side - next_x, max_side - next_y, (-dir.0, -dir.1)),
+                        3 => (max_side - next_y, next_x, (-dir.1, dir.0)),
+                        _ => unreachable!(),
+                    };
+                    let next_pos = (next_x, next_y, next_square);
+                    if grid[map_pos(next_pos)] == Tile::Wall {
                         break;
                     }
-
-                    pos = next;
+                    (pos, dir) = (next_pos, next_dir);
                 }
             }
         }
     }
 
-    1000 * (pos.1 + 1)
-        + 4 * (pos.0 + 1)
-        + match dir {
-            EAST => 0,
-            SOUTH => 1,
-            WEST => 2,
-            NORTH => 3,
-            _ => panic!(),
-        }
+    let (x, y) = map_pos(pos);
+    let dir_value = match dir {
+        EAST => 0,
+        SOUTH => 1,
+        WEST => 2,
+        NORTH => 3,
+        _ => unreachable!(),
+    };
+    1000 * (y + 1) + 4 * (x + 1) + dir_value
 }
 
-pub fn part2(input: &Input) -> isize {
-    let (grid, directions) = input;
-    let xbounds = (0..grid.w())
-        .map(|x| {
-            (0..grid.h())
-                .filter(|&y| grid[(x, y)] != Tile::Void)
-                .minmax()
-                .into_option()
-                .map(|(miny, maxy)| (miny as isize, maxy as isize))
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-    let ybounds = (0..grid.h())
-        .map(|y| {
-            (0..grid.w())
-                .filter(|&x| grid[(x, y)] != Tile::Void)
-                .minmax()
-                .into_option()
-                .map(|(minx, maxx)| (minx as isize, maxx as isize))
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
+pub fn part1(input: &Input) -> usize {
+    let (grid, _) = input;
+    let (squares_positions, squares_grid) = identify_squares(&grid);
 
-    let mut dir = EAST;
-    let mut pos = (ybounds[0].0, 0);
-    while grid[pos] != Tile::Empty {
-        pos.0 += 1;
+    fn set_edges_chain(
+        edges: &mut [[(usize, usize); 4]; 6],
+        iter: impl Iterator<Item = usize> + Clone,
+        (before, after): (usize, usize),
+    ) {
+        iter.filter(|&i| i < 6)
+            .cycle()
+            .tuple_windows()
+            .take_while_inclusive(|&(i, j)| i < j)
+            .for_each(|(i, j)| {
+                edges[i][after].0 = j;
+                edges[j][before].0 = i;
+            });
     }
 
-    let lx1 = ybounds[0].0;
-    let lx2 = 0;
-    let rx1 = grid.w() as isize - 1;
-    let rx2 = ybounds[xbounds[ybounds[0].0 as usize].1 as usize].1;
-    let rx3 = ybounds[grid.h() - 1].1;
-    let ty1 = xbounds[0].0;
-    let ty2 = 0;
-    let by1 = grid.h() as isize - 1;
-    let by2 = xbounds[ybounds[0].0 as usize].1;
-    let by3 = xbounds[grid.w() - 1].1;
+    let mut edges = [[(7, 0); 4]; 6];
+    for y in 0..squares_grid.h() {
+        let iter = (0..squares_grid.w()).map(|x| squares_grid[(x, y)]);
+        set_edges_chain(&mut edges, iter, (3, 1));
+    }
+    for x in 0..squares_grid.w() {
+        let iter = (0..squares_grid.h()).map(|y| squares_grid[(x, y)]);
+        set_edges_chain(&mut edges, iter, (0, 2));
+    }
 
-    for movement in directions {
-        match movement {
-            &Movement::Turn(d) => {
-                dir = (d * dir.1, -d * dir.0);
-            }
-            &Movement::Move(n) => {
-                for _ in 0..n {
-                    let (x, y) = pos;
-                    let (next_pos, next_dir) = match dir {
-                        EAST if ybounds[y as usize].1 == x => {
-                            if x == rx1 {
-                                ((rx2, by2 - y), WEST)
-                            } else if x == rx3 {
-                                ((rx2 - (grid.h() as isize - 1 - y), by2), NORTH)
-                            } else if y >= ty1 {
-                                ((rx1, by2 - y), WEST)
-                            } else {
-                                ((y - by3 + rx2, by3), NORTH)
-                            }
-                        }
-                        WEST if ybounds[y as usize].0 == x => {
-                            if y <= by3 {
-                                ((lx2, by2 - y), EAST)
-                            } else if x == lx1 {
-                                ((y - by3 - 1, ty1), SOUTH)
-                            } else if y <= by2 {
-                                ((lx1, by2 - y), EAST)
-                            } else {
-                                ((lx1 + y - (by2 + 1), ty2), SOUTH)
-                            }
-                        }
-                        SOUTH if xbounds[x as usize].1 == y => {
-                            if y == by1 {
-                                ((x + rx2 + 1, ty2), SOUTH)
-                            } else if y == by2 {
-                                ((rx3, x - rx2 + by1), WEST)
-                            } else {
-                                ((rx2, x - rx1 + ty1 - 1), WEST)
-                            }
-                        }
-                        NORTH if xbounds[x as usize].0 == y => {
-                            if x < lx1 {
-                                ((lx1, by3 + 1 + x), EAST)
-                            } else if x <= rx2 {
-                                ((lx2, x - lx1 + by2 + 1), EAST)
-                            } else {
-                                ((x - (rx2 + 1), by1), NORTH)
-                            }
-                        }
-                        _ => ((x + dir.0, y + dir.1), dir),
-                    };
+    simulate_with_edges(input, squares_positions, edges)
+}
 
-                    if grid[next_pos] == Tile::Wall {
-                        break;
-                    }
+pub fn part2(input: &Input) -> usize {
+    let (grid, _) = input;
+    let (squares_positions, squares_grid) = identify_squares(&grid);
 
-                    pos = next_pos;
-                    dir = next_dir;
-                }
+    let mut edges = [[(7, 0); 4]; 6];
+    for ((x, y), &i) in squares_grid.iter().filter(|&(_, &i)| i < 6) {
+        if x != 0 && squares_grid[(x - 1, y)] < 6 {
+            edges[i][LEFT] = (squares_grid[(x - 1, y)], 0);
+            edges[squares_grid[(x - 1, y)]][RIGHT] = (i, 0);
+        }
+        if y != 0 && squares_grid[(x, y - 1)] < 6 {
+            edges[i][TOP] = (squares_grid[(x, y - 1)], 0);
+            edges[squares_grid[(x, y - 1)]][BOTTOM] = (i, 0);
+        }
+    }
+    for _ in 0..6 {
+        for i in 0..6 {
+            for d in 0..4 {
+                let Some(&(n1 @ 0..=5, rot1)) = edges[i].get(d) else { continue };
+                let Some(&(n2 @ 0..=5, rot2)) = edges[n1].get((d + 1 + 4 - rot1) % 4) else { continue };
+                let rot = (1 + rot1 + rot2) % 4;
+                edges[i][(d + 1) % 4] = (n2, rot);
+                edges[n2][(3 - rot + d) % 4] = (i, (4 - rot) % 4);
             }
         }
     }
 
-    1000 * (pos.1 + 1)
-        + 4 * (pos.0 + 1)
-        + match dir {
-            EAST => 0,
-            SOUTH => 1,
-            WEST => 2,
-            NORTH => 3,
-            _ => panic!(),
-        }
+    simulate_with_edges(input, squares_positions, edges)
 }
