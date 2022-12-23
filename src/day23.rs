@@ -16,8 +16,7 @@ pub fn input_generator(input: &str) -> Input {
 }
 
 fn round_simulator() -> impl FnMut(&mut FxHashSet<(isize, isize)>) -> bool {
-    let mut proposals = FxHashMap::default();
-    let mut tmp_positions = FxHashSet::default();
+    let mut new_positions = FxHashSet::default();
     let mut directions = VecDeque::from([
         ([0, 1, 2], (0, -1)),
         ([5, 6, 7], (0, 1)),
@@ -25,11 +24,10 @@ fn round_simulator() -> impl FnMut(&mut FxHashSet<(isize, isize)>) -> bool {
         ([2, 4, 7], (1, 0)),
     ]);
     move |positions| {
-        let mut moved = false;
-        proposals.clear();
-        tmp_positions.clear();
+        let mut moved = 0;
+        new_positions.clear();
 
-        let move_position = |x, y| {
+        'positions: for &(x, y) in &*positions {
             let occupied = [
                 (-1, -1),
                 (0, -1),
@@ -45,34 +43,24 @@ fn round_simulator() -> impl FnMut(&mut FxHashSet<(isize, isize)>) -> bool {
             if occupied != [false; 8] {
                 for (to_check, (dx, dy)) in &directions {
                     if to_check.iter().all(|&neighbour| !occupied[neighbour]) {
-                        return Some((x + dx, y + dy));
+                        moved += 1;
+                        if !new_positions.insert((x + dx, y + dy)) {
+                            new_positions.remove(&(x + dx, y + dy));
+                            new_positions.insert((x, y));
+                            new_positions.insert((x + 2 * dx, y + 2 * dy));
+                            moved -= 2;
+                        }
+                        continue 'positions;
                     }
                 }
             }
 
-            None
-        };
-
-        for &(x, y) in &*positions {
-            if let Some(pos) = move_position(x, y) {
-                *proposals.entry(pos).or_insert(0) += 1;
-            }
+            new_positions.insert((x, y));
         }
 
-        for &(x, y) in &*positions {
-            if let Some(pos) = move_position(x, y) {
-                if proposals[&pos] == 1 {
-                    tmp_positions.insert(pos);
-                    moved = true;
-                    continue;
-                }
-            }
-            tmp_positions.insert((x, y));
-        }
-
-        std::mem::swap(positions, &mut tmp_positions);
+        std::mem::swap(positions, &mut new_positions);
         directions.rotate_left(1);
-        moved
+        moved != 0
     }
 }
 
@@ -84,14 +72,13 @@ pub fn part1(input: &Input) -> usize {
         simulator(&mut positions);
     }
 
-    let &minx = positions.iter().map(|(x, _)| x).min().unwrap();
-    let &maxx = positions.iter().map(|(x, _)| x).max().unwrap();
-    let &miny = positions.iter().map(|(_, y)| y).min().unwrap();
-    let &maxy = positions.iter().map(|(_, y)| y).max().unwrap();
-
-    itertools::iproduct!(minx..=maxx, miny..=maxy)
-        .filter(|pos| !positions.contains(pos))
-        .count()
+    let (mut minx, mut maxx) = (isize::MAX, isize::MIN);
+    let (mut miny, mut maxy) = (isize::MAX, isize::MIN);
+    for &(x, y) in &positions {
+        (minx, maxx) = (min(minx, x), max(maxx, x));
+        (miny, maxy) = (min(miny, y), max(maxy, y));
+    }
+    ((maxx - minx + 1) * (maxy - miny + 1)) as usize - positions.len()
 }
 
 pub fn part2(input: &Input) -> usize {
