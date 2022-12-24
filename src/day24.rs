@@ -1,79 +1,75 @@
 #[allow(unused_imports)]
 use super::prelude::*;
-type Input = Grid<(i8, i8)>;
+type Input = ((usize, usize), [Vec<u64>; 4]);
 
 pub fn input_generator(input: &str) -> Input {
-    let lenx = input.find('\n').expect("Invalid input") as isize - 2;
-    let leny = input.lines().count() as isize - 2;
+    let lenx = input.find('\n').expect("Invalid input") - 2;
+    let leny = input.lines().count() - 2;
+    assert!(leny < 64);
+    let mut blizzards = array::from_fn(|_| vec![(1 << leny) - 1; lenx]);
 
-    let mut blizzards = Grid::with_dimensions(lenx as usize, leny as usize);
     for (y, line) in input.lines().dropping(1).dropping_back(1).enumerate() {
         for (x, c) in line.chars().dropping(1).dropping_back(1).enumerate() {
-            let (x, y) = (x as isize, y as isize);
             match c {
                 '.' => {}
-                '>' => blizzards[(x, y)] = (1, 0),
-                '<' => blizzards[(x, y)] = (-1, 0),
-                'v' => blizzards[(x, y)] = (0, 1),
-                '^' => blizzards[(x, y)] = (0, -1),
+                '^' => blizzards[0][x] &= !(1 << y),
+                'v' => blizzards[1][x] &= !(1 << y),
+                '>' => blizzards[2][x] &= !(1 << y),
+                '<' => blizzards[3][x] &= !(1 << y),
                 _ => panic!(),
             }
         }
     }
 
-    blizzards
+    ((lenx, leny), blizzards)
 }
 
-fn solve(blizzards: &Input, max_iter: usize) -> usize {
-    let lenx = blizzards.w() as isize;
-    let leny = blizzards.h() as isize;
-    let (mut start, mut end) = ((0, -1), (lenx - 1, leny));
-
+fn solve((lenx, leny): (usize, usize), mut blizzards: [Vec<u64>; 4], max_iter: usize) -> usize {
+    let mut steps = 0;
     let mut iter = 0;
-    let mut queue = BinaryHeap::from([(Reverse(0), Reverse(0), start)]);
-    let mut seen = FxHashSet::default();
+    let mut reachable = vec![0; lenx];
 
-    while let Some((_, Reverse(steps), pos @ (x, y))) = queue.pop() {
-        if pos == end {
-            if iter == max_iter {
-                return steps as usize;
-            }
-            (start, end) = (end, start);
-            queue.clear();
-            seen.clear();
+    let mask_inside = (1u64 << leny) - 1;
+    let mask_last = 1 << (leny - 1);
+
+    loop {
+        let shift_up = |m| ((m >> 1) | ((m & 1) << (leny - 1)));
+        let shift_down = |m| ((m << 1) | ((m & mask_last) >> (leny - 1)));
+        blizzards[0].iter_mut().for_each(|m| *m = shift_up(*m));
+        blizzards[1].iter_mut().for_each(|m| *m = shift_down(*m));
+        blizzards[2].rotate_right(1);
+        blizzards[3].rotate_left(1);
+        steps += 1;
+
+        if (reachable[lenx - 1] & mask_last != 0 && iter % 2 == 0)
+            || (reachable[0] & 1 != 0 && iter % 2 == 1)
+        {
+            reachable.fill(0);
             iter += 1;
+            if iter == max_iter {
+                return steps;
+            }
+            continue;
         }
 
-        'next: for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)] {
-            let (x, y) = (x + dx, y + dy);
-            if (x, y) != start && (x, y) != end {
-                if !(0 <= x && x < lenx && 0 <= y && y < leny) {
-                    continue 'next;
-                }
-                for (bdx, bdy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                    let bx = (x - bdx * (steps + 1)).rem_euclid(lenx) as usize;
-                    let by = (y - bdy * (steps + 1)).rem_euclid(leny) as usize;
-                    if blizzards[(bx, by)] == (bdx as i8, bdy as i8) {
-                        continue 'next;
-                    }
-                }
-                if !seen.insert((x, y, steps)) {
-                    continue 'next;
-                }
-            }
-            let (endx, endy) = end;
-            let lower_bound = steps + 1 + isize::abs(endx - x) + isize::abs(endy - y);
-            queue.push((Reverse(lower_bound), Reverse(steps + 1), (x, y)));
+        let mut prev = if iter % 2 == 0 { 1 } else { 0 };
+        let last = if iter % 2 == 1 { mask_last } else { 0 };
+        for x in 0..lenx {
+            let prev = std::mem::replace(&mut prev, reachable[x]);
+            let next = reachable.get(x + 1).copied().unwrap_or(last);
+            reachable[x] |= (reachable[x] >> 1) | (reachable[x] << 1) | prev | next;
+            reachable[x] &= blizzards[0][x] & blizzards[1][x] & blizzards[2][x] & blizzards[3][x];
+            reachable[x] &= mask_inside;
         }
     }
-
-    panic!("Invalid input")
 }
 
 pub fn part1(input: &Input) -> usize {
-    solve(input, 0)
+    let ((lenx, leny), blizzards) = input.clone();
+    solve((lenx, leny), blizzards, 1)
 }
 
 pub fn part2(input: &Input) -> usize {
-    solve(input, 2)
+    let ((lenx, leny), blizzards) = input.clone();
+    solve((lenx, leny), blizzards, 3)
 }
