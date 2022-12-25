@@ -17,121 +17,133 @@ pub fn input_generator(input: &str) -> Input {
             let (_, rest) = rest.split_once("valve").expect("Invalid input");
             let rest = rest.trim_start_matches('s').trim_start();
             let valves = rest.split(", ").map(&mut id).collect();
-            let flow_rate = flow_rate.parse().expect("Invalid input");
-            (id(name), (flow_rate, valves))
+            let flow = flow_rate.parse().expect("Invalid input");
+            (id(name), (flow, valves))
         })
         .collect()
 }
 
-fn nonzero(input: &Input) -> Vec<usize> {
+fn distances(input: &Input) -> (Vec<Vec<usize>>, Vec<usize>) {
+    let mut flows = vec![0];
     let mut nonzero = vec![usize::MAX; input.len()];
-    input
-        .iter()
-        .filter(|&(_, &(flow, _))| flow != 0)
-        .enumerate()
-        .for_each(|(nzidx, (&id, _))| nonzero[id] = nzidx);
-    nonzero
-}
+    nonzero[0] = 0;
+    for (&node, &(flow, _)) in input {
+        if flow != 0 {
+            nonzero[node] = flows.len();
+            flows.push(flow);
+        }
+    }
 
-fn distances(input: &Input, nonzero: &[usize]) -> HashMap<usize, Vec<(usize, (u64, usize))>> {
-    (0..input.len())
-        .filter(|&idx| idx == 0 || nonzero[idx] != usize::MAX)
-        .map(|k| {
-            let mut queue = VecDeque::from([(k, 0, 0)]);
-            let mut distances = HashMap::new();
-
-            while let Some((k, mut filter, d)) = queue.pop_front() {
-                if !distances.contains_key(&k) {
-                    distances.insert(k, (filter, d));
-                    filter |= (nonzero[k] != usize::MAX)
-                        .then(|| 1 << nonzero[k])
-                        .unwrap_or(0);
-                    queue.extend(input[&k].1.iter().map(|&next| (next, filter, d + 1)));
+    let mut queue = VecDeque::new();
+    let mut seen = HashSet::new();
+    let mut distances = vec![vec![usize::MAX; flows.len()]; flows.len()];
+    for (raw_node, &nz_node) in nonzero.iter().enumerate() {
+        if nz_node != usize::MAX {
+            let distances = &mut distances[nz_node];
+            seen.clear();
+            queue.push_back((raw_node, 0));
+            while let Some((node, d)) = queue.pop_front() {
+                if seen.insert(node) {
+                    if nonzero[node] != usize::MAX {
+                        distances[nonzero[node]] = d;
+                    }
+                    queue.extend(input[&node].1.iter().map(|&next| (next, d + 1)));
                 }
             }
-
-            let mut distances = Vec::from_iter(distances);
-            distances.retain(|&(next, _)| next != k && nonzero[next] != usize::MAX);
-            distances.sort_by_key(|&(_, v)| v);
-
-            (k, distances)
-        })
-        .collect()
+        }
+    }
+    (distances, flows)
 }
 
-#[derive(Default)]
-struct SolveData {
-    node0: usize,
-    remaining0: usize,
-    node1: usize,
-    remaining1: usize,
+#[derive(Clone, Copy, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
+struct NodeData {
+    upper_bound: usize,
     pressure: usize,
+    node: usize,
     time: usize,
+    node2: usize,
+    time2: usize,
     opened: u64,
 }
 
-fn solve(input: &Input, data: SolveData) -> usize {
-    fn solve_rec(
-        mut data: SolveData,
-        mut best: usize,
-        max_flow: usize,
-        input: &Input,
-        nonzero: &[usize],
-        distances: &HashMap<usize, Vec<(usize, (u64, usize))>>,
-    ) -> usize {
-        if data.remaining0 > data.remaining1 {
-            std::mem::swap(&mut data.node0, &mut data.node1);
-            std::mem::swap(&mut data.remaining0, &mut data.remaining1);
+fn solve(input: &Input, time: usize, time2: usize) -> usize {
+    let (distances, flows) = distances(input);
+    let best_flows = (0..flows.len())
+        .sorted_unstable_by_key(|&id| Reverse(flows[id]))
+        .collect::<Vec<_>>();
+    let min_distance = distances
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|&d| d != 0)
+        .min()
+        .expect("Invalid input");
+
+    let mut initial = NodeData { time, time2, ..Default::default() };
+    initial.opened = 1 << 0;
+    initial.upper_bound = usize::MAX;
+
+    let mut best = 0;
+    let mut queue = BinaryHeap::from_iter([initial]);
+    let mut seen = FxHashSet::default();
+    while let Some(data) = queue.pop() {
+        best = max(best, data.pressure);
+
+        if data.upper_bound <= best {
+            break;
         }
 
-        if data.remaining0 >= data.time {
-            return data.pressure;
+        if !seen.insert(NodeData { upper_bound: 0, pressure: 0, ..data }) {
+            continue;
         }
 
-        let flow = input[&data.node0].0;
-        data.time -= data.remaining0;
-        data.remaining1 -= data.remaining0;
-        data.pressure += data.time * flow;
-        let max_flow = max_flow - flow;
+        let upper_bound = |data: NodeData| {
+            let mut upper_bound = data.pressure;
+            let mut time = data.time;
+            let mut time2 = data.time2;
+            for &id in &best_flows {
+                if time < min_distance + 1 {
+                    break;
+                } else if data.opened & (1 << id) == 0 {
+                    upper_bound += flows[id] * (time - 1);
+                    time -= min_distance + 1;
+                    (time, time2) = (max(time, time2), min(time, time2));
+                }
+            }
+            upper_bound
+        };
 
-        if data.pressure + data.time * max_flow <= best {
-            return 0;
-        }
-
-        for &(next, (filter, time_needed)) in &distances[&data.node0] {
-            if time_needed < data.time
-                && data.opened & filter == filter
-                && (data.opened & (1 << nonzero[next])) == 0
-            {
-                let remaining0 = time_needed + 1;
-                let opened = data.opened | (1 << nonzero[next]);
-                let new_data = SolveData { node0: next, remaining0, opened, ..data };
-
-                let best_rec = solve_rec(new_data, best, max_flow, input, nonzero, distances);
-                best = max(best, best_rec);
+        for (node, &time_needed) in distances[data.node].iter().enumerate() {
+            if time_needed < data.time && (data.opened & (1 << node)) == 0 {
+                let time = data.time - (time_needed + 1);
+                let mut data = NodeData { node, time, ..data };
+                if data.time < data.time2 {
+                    swap(&mut data.time, &mut data.time2);
+                    swap(&mut data.node, &mut data.node2);
+                }
+                data.pressure += time * flows[node];
+                data.opened |= 1 << node;
+                data.upper_bound = upper_bound(data);
+                if data.upper_bound > best {
+                    queue.push(data);
+                }
             }
         }
 
-        let new_data = SolveData { remaining0: data.time, ..data };
-        let best_stop = (new_data.remaining1 < data.time)
-            .then(|| solve_rec(new_data, best, max_flow, input, nonzero, distances))
-            .unwrap_or(data.pressure);
-
-        max(best, best_stop)
+        if data.time2 != 0 {
+            let mut data = NodeData { time: 0, ..data };
+            data.upper_bound = upper_bound(data);
+            queue.push(data);
+        }
     }
 
-    let max_flow = input.values().map(|&(flow, _)| flow).sum();
-    let nonzero = nonzero(input);
-    let distances = distances(input, &nonzero);
-    solve_rec(data, 0, max_flow, input, &nonzero, &distances)
+    best
 }
 
 pub fn part1(input: &Input) -> usize {
-    let data = SolveData { time: 30, remaining1: 30, ..Default::default() };
-    solve(input, data)
+    solve(input, 30, 0)
 }
 
 pub fn part2(input: &Input) -> usize {
-    let data = SolveData { time: 26, ..Default::default() };
-    solve(input, data)
+    solve(input, 26, 26)
 }
