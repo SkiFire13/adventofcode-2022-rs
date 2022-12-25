@@ -102,11 +102,11 @@ fn solve(input: &Input, time: usize, time2: usize) -> usize {
             let mut time = data.time;
             let mut time2 = data.time2;
             for &id in &best_flows {
-                if time < min_distance + 1 {
+                if time <= min_distance + 1 {
                     break;
                 } else if data.opened & (1 << id) == 0 {
-                    upper_bound += flows[id] * (time - 1);
                     time -= min_distance + 1;
+                    upper_bound += flows[id] * time;
                     (time, time2) = (max(time, time2), min(time, time2));
                 }
             }
