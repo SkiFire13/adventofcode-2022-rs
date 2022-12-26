@@ -68,16 +68,24 @@ struct NodeData {
 
 fn solve(input: &Input, time: usize, time2: usize) -> usize {
     let (distances, flows) = distances(input);
-    let best_flows = (0..flows.len())
-        .sorted_unstable_by_key(|&id| Reverse(flows[id]))
+    let min_distances = (0..=max(time, time2))
+        .map(|t| {
+            distances
+                .iter()
+                .map(|distances| {
+                    distances
+                        .iter()
+                        .copied()
+                        .filter(|&d| d != 0)
+                        .min()
+                        .unwrap_or(usize::MAX - 1)
+                })
+                .enumerate()
+                .filter(|&(id, d)| t > d + 1 && flows[id] != 0)
+                .sorted_unstable_by_key(|&(id, d)| Reverse(flows[id] * t - (d + 1)))
+                .collect::<Vec<_>>()
+        })
         .collect::<Vec<_>>();
-    let min_distance = distances
-        .iter()
-        .flatten()
-        .copied()
-        .filter(|&d| d != 0)
-        .min()
-        .expect("Invalid input");
 
     let mut initial = NodeData { time, time2, ..Default::default() };
     initial.opened = 1 << 0;
@@ -99,18 +107,21 @@ fn solve(input: &Input, time: usize, time2: usize) -> usize {
 
         let upper_bound = |data: NodeData| {
             let mut upper_bound = data.pressure;
+            let mut opened = data.opened;
             let mut time = data.time;
             let mut time2 = data.time2;
-            for &id in &best_flows {
-                if time <= min_distance + 1 {
-                    break;
-                } else if data.opened & (1 << id) == 0 {
-                    time -= min_distance + 1;
-                    upper_bound += flows[id] * time;
-                    (time, time2) = (max(time, time2), min(time, time2));
+            'outer: loop {
+                for &(id, d) in &min_distances[time] {
+                    if opened & (1 << id) == 0 {
+                        opened |= 1 << id;
+                        time -= d + 1;
+                        upper_bound += flows[id] * time;
+                        (time, time2) = (max(time, time2), min(time, time2));
+                        continue 'outer;
+                    }
                 }
+                return upper_bound;
             }
-            upper_bound
         };
 
         for (node, &time_needed) in distances[data.node].iter().enumerate() {
