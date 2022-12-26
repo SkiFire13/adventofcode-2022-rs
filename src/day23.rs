@@ -11,100 +11,116 @@ pub fn input_generator(input: &str) -> Input {
     .into_set()
 }
 
-fn round_simulator(input: &Input) -> impl FnMut(&mut Input) -> bool {
-    let mut directions = VecDeque::from([
-        ([0, 1, 2], (0, -1)),
-        ([5, 6, 7], (0, 1)),
-        ([0, 3, 5], (-1, 0)),
-        ([2, 4, 7], (1, 0)),
-    ]);
+struct Simulator {
+    iter: usize,
+    width: usize,
+    elfs: Vec<(usize, usize)>,
+    grid: Vec<bool>,
+    candidates: Vec<u8>,
+}
 
-    let (mut minx, mut maxx) = (isize::MAX, isize::MIN);
-    let (mut miny, mut maxy) = (isize::MAX, isize::MIN);
-    for (x, y) in input.iter_set() {
-        let (x, y) = (x as isize, y as isize);
-        (minx, maxx) = (min(minx, x), max(maxx, x));
-        (miny, maxy) = (min(miny, y), max(maxy, y));
+impl Simulator {
+    fn new(input: &Input) -> Self {
+        let (width, height) = (input.w() + 1 + 80, input.h() + 1 + 80);
+        let mut grid = vec![false; width * height];
+        let candidates = vec![0; width * height];
+
+        let elfs = input
+            .iter_set()
+            .map(|(x, y)| x + 20 + width * (y + 20))
+            .inspect(|&pos| grid[pos] = true)
+            .map(|pos| (pos, 0))
+            .collect();
+
+        Self { iter: 0, width, elfs, grid, candidates }
     }
 
-    let mut new_set = Grid::new().into_set();
+    fn step(&mut self) -> bool {
+        #[rustfmt::skip]
+        let neighbours = [ (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1) ];
+        let directions = [
+            ([(-1, -1), (0, -1), (1, -1)], (0, -1)),
+            ([(-1, 1), (0, 1), (1, 1)], (0, 1)),
+            ([(-1, -1), (-1, 0), (-1, 1)], (-1, 0)),
+            ([(1, -1), (1, 0), (1, 1)], (1, 0)),
+        ];
 
-    move |set| {
-        let mut moved = 0;
-        new_set.vec.clear();
-        new_set
-            .vec
-            .resize(((maxx - minx + 3) * (maxy - miny + 3)) as usize, false);
-        new_set.width = (maxx - minx + 3) as usize;
+        'elfs: for (pos, candidate) in &mut self.elfs {
+            let pos = *pos as isize;
 
-        let encode = move |(x, y)| ((x + 1 - minx) as usize, (y + 1 - miny) as usize);
+            let occupied = |(dx, dy)| self.grid[(pos + dx + dy * self.width as isize) as usize];
 
-        (minx, maxx) = (isize::MAX, isize::MIN);
-        (miny, maxy) = (isize::MAX, isize::MIN);
-
-        'positions: for (x, y) in set.iter_set() {
-            let (x, y) = (x as isize, y as isize);
-            #[rustfmt::skip]
-            let occupied = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1) ]
-                .map(|(dx, dy)| *set.iget((x + dx, y + dy)).unwrap_or(&false));
-
-            if occupied != [false; 8] {
-                for (to_check, (dx, dy)) in &directions {
-                    if to_check.iter().all(|&neighbour| !occupied[neighbour]) {
-                        moved += 1;
-                        if !new_set.insert(encode((x + dx, y + dy))) {
-                            new_set.remove(encode((x + dx, y + dy)));
-                            new_set.insert(encode((x, y)));
-                            new_set.insert(encode((x + 2 * dx, y + 2 * dy)));
-                            moved -= 2;
-                        }
-                        let (ex, ey) = encode((x + dx, y + dy));
-                        let (ex, ey) = (ex as isize, ey as isize);
-                        (minx, maxx) = (min(minx, ex), max(maxx, ex));
-                        (miny, maxy) = (min(miny, ey), max(maxy, ey));
-                        continue 'positions;
+            if neighbours.iter().any(|&(dx, dy)| occupied((dx, dy))) {
+                for i in 0..4 {
+                    let (to_check, (dx, dy)) = directions[(i + self.iter) % 4];
+                    if to_check.iter().all(|&neighbour| !occupied(neighbour)) {
+                        let candidate_pos = (pos + dx + dy * self.width as isize) as usize;
+                        *candidate = candidate_pos;
+                        self.candidates[candidate_pos] += 1;
+                        continue 'elfs;
                     }
                 }
             }
-
-            let (ex, ey) = encode((x, y));
-            let (ex, ey) = (ex as isize, ey as isize);
-            (minx, maxx) = (min(minx, ex), max(maxx, ex));
-            (miny, maxy) = (min(miny, ey), max(maxy, ey));
-            new_set.insert(encode((x, y)));
         }
 
-        std::mem::swap(set, &mut new_set);
-        directions.rotate_left(1);
+        let (mut minx, mut maxx) = (usize::MAX, 0);
+        let (mut miny, mut maxy) = (usize::MAX, 0);
+
+        let mut moved = 0;
+        for (pos, candidate_pos) in &mut self.elfs {
+            let candidate_pos = std::mem::take(candidate_pos);
+            if candidate_pos != 0 {
+                if std::mem::take(&mut self.candidates[candidate_pos]) == 1 {
+                    self.grid[*pos] = false;
+                    self.grid[candidate_pos] = true;
+                    *pos = candidate_pos;
+                    moved += 1;
+
+                    let (x, y) = (*pos % self.width, *pos / self.width);
+                    (minx, maxx) = (min(minx, x), max(maxx, x));
+                    (miny, maxy) = (min(miny, y), max(maxy, y));
+                }
+            }
+        }
+
+        let height = self.grid.len() / self.width;
+        if minx == 0 || maxx == self.width - 1 || miny == 0 || maxy == height - 1 {
+            let new_len = (self.width + 40) * (height + 40);
+            self.grid.clear();
+            self.grid.resize(new_len, false);
+            self.candidates.clear();
+            self.candidates.resize(new_len, 0);
+            self.width += 40;
+            for (pos, _) in &mut self.elfs {
+                *pos += 20 + 20 * self.width;
+                self.grid[*pos] = true;
+            }
+        }
+
+        self.iter += 1;
+
         moved != 0
     }
 }
 
 pub fn part1(input: &Input) -> usize {
-    let mut positions = input.clone();
-
-    let mut simulator = round_simulator(input);
+    let mut simulator = Simulator::new(input);
     for _ in 0..10 {
-        simulator(&mut positions);
+        simulator.step();
     }
 
     let (mut minx, mut maxx) = (usize::MAX, usize::MIN);
     let (mut miny, mut maxy) = (usize::MAX, usize::MIN);
-    for (x, y) in positions.iter_set() {
+    for &(pos, _) in &simulator.elfs {
+        let (x, y) = (pos % simulator.width, pos / simulator.width);
         (minx, maxx) = (min(minx, x), max(maxx, x));
         (miny, maxy) = (min(miny, y), max(maxy, y));
     }
-    (maxx - minx + 1) * (maxy - miny + 1) - positions.count()
+    (maxx - minx + 1) * (maxy - miny + 1) - simulator.elfs.len()
 }
 
 pub fn part2(input: &Input) -> usize {
-    let mut positions = input.clone();
-
-    let mut simulator = round_simulator(input);
-    let mut round = 1;
-    while simulator(&mut positions) {
-        round += 1;
-    }
-
-    round
+    let mut simulator = Simulator::new(input);
+    while simulator.step() {}
+    simulator.iter
 }
