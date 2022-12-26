@@ -61,35 +61,39 @@ pub fn input_generator(input: &str) -> Input {
     (map, instructions)
 }
 
-const SQUARE_SIDE: usize = 50;
+fn identify_squares(grid: &Grid<Tile>) -> ([(usize, usize); 6], Grid<usize>, usize) {
+    let mut square_side = num::integer::gcd(grid.w(), grid.h());
+    if square_side == grid.w() || square_side == grid.h() {
+        square_side /= 2;
+    }
 
-fn identify_squares(grid: &Grid<Tile>) -> ([(usize, usize); 6], Grid<usize>) {
-    let width = grid.w() / SQUARE_SIDE;
-    let height = grid.h() / SQUARE_SIDE;
+    let width = grid.w() / square_side;
+    let height = grid.h() / square_side;
 
     let square_positions_iter = itertools::iproduct!(0..height, 0..width)
         .map(|(y, x)| (x, y))
-        .filter(|&(x, y)| grid[(x * SQUARE_SIDE, y * SQUARE_SIDE)] != Tile::Void);
+        .filter(|&(x, y)| grid[(x * square_side, y * square_side)] != Tile::Void);
     let squares_positions = <[(usize, usize); 6]>::from_iter(square_positions_iter);
     let squares_grid = Grid::with_dimensions_init(width, height, |x, y| {
         (0..6)
             .find(|&i| squares_positions[i] == (x, y))
             .unwrap_or(6)
     });
-    (squares_positions, squares_grid)
+    (squares_positions, squares_grid, square_side)
 }
 
 fn simulate_with_edges(
     input: &Input,
     squares_positions: [(usize, usize); 6],
     edges: [[(usize, usize); 4]; 6],
+    square_side: usize,
 ) -> usize {
     let (grid, instructions) = input;
 
     let map_pos = |(x, y, side)| {
         let (x, y) = (x as usize, y as usize);
         let (side_x, side_y) = squares_positions[side];
-        (side_x * SQUARE_SIDE + x, side_y * SQUARE_SIDE + y)
+        (side_x * square_side + x, side_y * square_side + y)
     };
 
     let (mut pos, mut dir) = ((0, 0, 0), EAST);
@@ -98,7 +102,7 @@ fn simulate_with_edges(
             &Instruction::Turn(d) => dir = (d * dir.1, -d * dir.0),
             &Instruction::Step(n) => {
                 for _ in 0..n {
-                    let max_side = SQUARE_SIDE as isize - 1;
+                    let max_side = square_side as isize - 1;
                     let (x, y, square) = pos;
                     let (next_x, next_y, (next_square, next_rot)) = match dir {
                         EAST if x == max_side => (0, y, edges[square][RIGHT]),
@@ -137,7 +141,7 @@ fn simulate_with_edges(
 
 pub fn part1(input: &Input) -> usize {
     let (grid, _) = input;
-    let (squares_positions, squares_grid) = identify_squares(&grid);
+    let (squares_positions, squares_grid, square_side) = identify_squares(&grid);
 
     fn set_edges_chain(
         edges: &mut [[(usize, usize); 4]; 6],
@@ -164,12 +168,12 @@ pub fn part1(input: &Input) -> usize {
         set_edges_chain(&mut edges, iter, (0, 2));
     }
 
-    simulate_with_edges(input, squares_positions, edges)
+    simulate_with_edges(input, squares_positions, edges, square_side)
 }
 
 pub fn part2(input: &Input) -> usize {
     let (grid, _) = input;
-    let (squares_positions, squares_grid) = identify_squares(&grid);
+    let (squares_positions, squares_grid, square_side) = identify_squares(&grid);
 
     let mut edges = [[(7, 0); 4]; 6];
     for ((x, y), &i) in squares_grid.iter().filter(|&(_, &i)| i < 6) {
@@ -194,5 +198,5 @@ pub fn part2(input: &Input) -> usize {
         }
     }
 
-    simulate_with_edges(input, squares_positions, edges)
+    simulate_with_edges(input, squares_positions, edges, square_side)
 }
