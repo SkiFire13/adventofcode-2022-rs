@@ -1,9 +1,12 @@
 #[allow(unused_imports)]
 use super::prelude::*;
-type Input = VecDeque<i64>;
+type Input = Vec<i64>;
 
 pub fn input_generator(input: &str) -> Input {
-    input.lines().map(|line| line.parse().unwrap()).collect()
+    input
+        .lines()
+        .map(|line| line.parse().expect("Invalid input"))
+        .collect()
 }
 
 #[derive(Copy, Clone)]
@@ -142,15 +145,12 @@ impl Treap<'_> {
     }
 }
 
-fn solve(len: usize, get: impl Fn(usize) -> i64, iter: impl Iterator<Item = usize>) -> i64 {
-    let mut nodes = (0..len)
-        .map(|i| Node {
-            value: get(i),
-            count: 1,
-            left: NULL,
-            right: NULL,
-            parent: NULL,
-        })
+fn solve(input: &Input, factor: i64, iters: usize) -> i64 {
+    let len = input.len();
+    let mut nodes = input
+        .iter()
+        .map(|&value| value * factor)
+        .map(|value| Node { value, count: 1, left: NULL, right: NULL, parent: NULL })
         .collect::<Vec<_>>();
 
     let zero = nodes
@@ -161,26 +161,23 @@ fn solve(len: usize, get: impl Fn(usize) -> i64, iter: impl Iterator<Item = usiz
     let mut treap = Treap { nodes: &mut nodes, root: NULL };
     (0..len).for_each(|node @ rank| treap.insert(node, rank));
 
-    for node in iter {
-        let rank = treap.remove(node);
-        let new_rank = (treap.nodes[node].value + rank as i64).rem_euclid(len as i64 - 1) as usize;
-        treap.insert(node, new_rank);
+    for _ in 0..iters {
+        for node in 0..len {
+            let rank = treap.remove(node) as i64;
+            let new_rank = (treap.nodes[node].value + rank).rem_euclid(len as i64 - 1) as usize;
+            treap.insert(node, new_rank);
+        }
     }
 
     let zero_rank = treap.rank(zero);
-    treap.nodes[treap.derank((zero_rank + 1000) % len)].value
-        + treap.nodes[treap.derank((zero_rank + 2000) % len)].value
-        + treap.nodes[treap.derank((zero_rank + 3000) % len)].value
+    let get = |offset| treap.nodes[treap.derank((zero_rank + offset) % len)].value;
+    get(1000) + get(2000) + get(3000)
 }
 
 pub fn part1(input: &Input) -> i64 {
-    solve(input.len(), |n| input[n], 0..input.len())
+    solve(input, 1, 1)
 }
 
 pub fn part2(input: &Input) -> i64 {
-    solve(
-        input.len(),
-        |n| input[n] * 811589153,
-        (0..10).flat_map(|_| 0..input.len()),
-    )
+    solve(input, 811589153, 10)
 }
