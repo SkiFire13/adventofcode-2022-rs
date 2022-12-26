@@ -9,169 +9,45 @@ pub fn input_generator(input: &str) -> Input {
         .collect()
 }
 
-#[derive(Copy, Clone)]
-struct Node {
-    value: i64,
-    count: usize,
-    left: NodeIdx,
-    right: NodeIdx,
-    parent: NodeIdx,
-}
-
-type NodeIdx = usize;
-const NULL: NodeIdx = usize::MAX;
-
-struct Treap<'a> {
-    nodes: &'a mut [Node],
-    root: NodeIdx,
-}
-
-impl Treap<'_> {
-    fn update(&mut self, node: NodeIdx) {
-        let Node { left, right, .. } = self.nodes[node];
-        let mut count = 1;
-        if let Some(l) = self.nodes.get_mut(left) {
-            l.parent = node;
-            count += l.count;
-        }
-        if let Some(r) = self.nodes.get_mut(right) {
-            r.parent = node;
-            count += r.count;
-        }
-        self.nodes[node].count = count;
-    }
-
-    fn split(&mut self, node: NodeIdx, rank: usize) -> (NodeIdx, NodeIdx) {
-        let Some(&Node { left, right, .. })
-            = self.nodes.get(node) else { return (NULL, NULL) };
-        let left_count = self.nodes.get(left).map_or(0, |n| n.count);
-        if rank <= left_count {
-            let (ll, lr) = self.split(left, rank);
-            self.nodes[node].left = lr;
-            self.update(node);
-            (ll, node)
-        } else {
-            let (rl, rr) = self.split(right, rank - left_count - 1);
-            self.nodes[node].right = rl;
-            self.update(node);
-            (node, rr)
-        }
-    }
-
-    fn merge(&mut self, left: NodeIdx, right: NodeIdx) -> NodeIdx {
-        let Some(l) = self.nodes.get(left) else { return right };
-        let Some(r) = self.nodes.get(right) else { return left };
-        if l.value < r.value {
-            self.nodes[left].right = self.merge(l.right, right);
-            self.update(left);
-            left
-        } else {
-            self.nodes[right].left = self.merge(left, r.left);
-            self.update(right);
-            right
-        }
-    }
-
-    fn insert(&mut self, node: NodeIdx, rank: usize) {
-        let n = &mut self.nodes[node];
-        n.left = NULL;
-        n.right = NULL;
-        n.parent = NULL;
-        n.count = 1;
-        let (l, r) = self.split(self.root, rank);
-        let lm = self.merge(l, node);
-        self.root = self.merge(lm, r);
-        self.nodes[self.root].parent = NULL;
-    }
-
-    fn remove(&mut self, node: NodeIdx) -> usize {
-        let r = self.nodes[node];
-        let mut rank = self.nodes.get(r.left).map_or(0, |n| n.count);
-        let mut cur = r.parent;
-        let mut prev = node;
-        while let Some(c) = self.nodes.get_mut(cur) {
-            let (l, r, p) = (c.left, c.right, c.parent);
-            c.count -= 1;
-            if prev == r {
-                rank += 1 + self.nodes.get(l).map_or(0, |n| n.count);
-            }
-            (prev, cur) = (cur, p);
-        }
-
-        let merged = self.merge(r.left, r.right);
-        if let Some(m) = self.nodes.get_mut(merged) {
-            m.parent = r.parent;
-        }
-        if let Some(p) = self.nodes.get_mut(r.parent) {
-            if p.left == node {
-                p.left = merged;
-            } else {
-                p.right = merged;
-            }
-        } else {
-            self.root = merged;
-        }
-        rank
-    }
-
-    fn rank(&self, node: NodeIdx) -> usize {
-        let n = self.nodes[node];
-        let mut rank = self.nodes.get(n.left).map_or(0, |n| n.count);
-        let mut cur = n.parent;
-        let mut prev = node;
-        while let Some(c) = self.nodes.get(cur) {
-            if prev == c.right {
-                rank += 1 + self.nodes.get(c.left).map_or(0, |n| n.count);
-            }
-            (prev, cur) = (cur, c.parent);
-        }
-        rank
-    }
-
-    fn derank(&self, mut rank: usize) -> NodeIdx {
-        let mut cur = self.root;
-        while let Some(c) = self.nodes.get(cur) {
-            let left_count = self.nodes.get(c.left).map_or(0, |n| n.count);
-            match rank.cmp(&self.nodes.get(c.left).map_or(0, |n| n.count)) {
-                Ordering::Less => cur = c.left,
-                Ordering::Equal => return cur,
-                Ordering::Greater => {
-                    cur = c.right;
-                    rank -= left_count + 1;
-                }
-            }
-        }
-        unreachable!()
-    }
-}
-
 fn solve(input: &Input, factor: i64, iters: usize) -> i64 {
     let len = input.len();
-    let mut nodes = input
-        .iter()
-        .map(|&value| value * factor)
-        .map(|value| Node { value, count: 1, left: NULL, right: NULL, parent: NULL })
+
+    let bucket_size = num::integer::sqrt(len);
+    let mut buckets = (0..len)
+        .batching(|it| Some(it.take(bucket_size).collect::<Vec<_>>()))
+        .take_while(|v| !v.is_empty())
         .collect::<Vec<_>>();
 
-    let zero = nodes
-        .iter()
-        .position(|n| n.value == 0)
-        .expect("Invalid input");
+    let mut idxs = (0..len).map(|i| i / bucket_size).collect::<Vec<_>>();
 
-    let mut treap = Treap { nodes: &mut nodes, root: NULL };
-    (0..len).for_each(|node @ rank| treap.insert(node, rank));
+    fn get(buckets: &[Vec<usize>], mut bucket: usize, pos: usize, offset: usize) -> (usize, usize) {
+        let mut offset = pos + offset;
+        while offset > buckets[bucket].len() {
+            offset -= buckets[bucket].len();
+            bucket = (bucket + 1) % buckets.len();
+        }
+        (bucket, offset)
+    }
 
     for _ in 0..iters {
         for node in 0..len {
-            let rank = treap.remove(node) as i64;
-            let new_rank = (treap.nodes[node].value + rank).rem_euclid(len as i64 - 1) as usize;
-            treap.insert(node, new_rank);
+            let shift = (input[node] * factor).rem_euclid(len as i64 - 1) as usize;
+            let bucket = idxs[node];
+            let pos = buckets[bucket].iter().position(|&n| n == node).unwrap();
+            buckets[bucket].remove(pos);
+            let (bucket, offset) = get(&buckets, bucket, pos, shift);
+            buckets[bucket].insert(offset, node);
+            idxs[node] = bucket;
         }
     }
 
-    let zero_rank = treap.rank(zero);
-    let get = |offset| treap.nodes[treap.derank((zero_rank + offset) % len)].value;
-    get(1000) + get(2000) + get(3000)
+    let zero = input.iter().position(|&n| n == 0).expect("Invalid input");
+    let pos = buckets[idxs[zero]].iter().position(|&n| n == zero).unwrap();
+    let (bucket1000, offset1000) = get(&buckets, idxs[zero], pos, 1000);
+    let (bucket2000, offset2000) = get(&buckets, bucket1000, offset1000, 1000);
+    let (bucket3000, offset3000) = get(&buckets, bucket2000, offset2000, 1000);
+    let value = |bucket: usize, offset| input[buckets[bucket][offset]] * factor;
+    value(bucket1000, offset1000) + value(bucket2000, offset2000) + value(bucket3000, offset3000)
 }
 
 pub fn part1(input: &Input) -> i64 {
