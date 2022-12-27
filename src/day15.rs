@@ -23,8 +23,6 @@ pub fn input_generator(input: &str) -> Input {
 pub fn part1(input: &Input) -> usize {
     const ROW_TARGET: isize = 2000000;
 
-    let mut last_end = isize::MIN;
-
     let reachable = input
         .iter()
         .filter_map(|&((sx, sy), (bx, by))| {
@@ -33,13 +31,12 @@ pub fn part1(input: &Input) -> usize {
             let slack = db.checked_sub(drow)? as isize;
             Some((sx - slack, sx + slack + 1))
         })
-        .sorted_unstable_by_key(|&(s, e)| (s, Reverse(e)))
-        .map(|(start, end)| {
-            let start = max(last_end, start);
-            let end = max(last_end, end);
-            last_end = end;
-            (end - start) as usize
+        .sorted_unstable()
+        .coalesce(|(s1, e1), (s2, e2)| match s2 <= e1 {
+            true => Ok((s1, max(e1, e2))),
+            false => Err(((s1, e1), (s2, e2))),
         })
+        .map(|(start, end)| (end - start) as usize)
         .sum::<usize>();
 
     let beacons = input
@@ -57,15 +54,21 @@ pub fn part2(input: &Input) -> usize {
         .iter()
         .flat_map(|&((sx, sy), (bx, by))| {
             let db = isize::abs(sx - bx) + isize::abs(sy - by);
-            let upper = (sx + sy + db + 1, sx - sy + db + 1);
-            let lower = (sx + sy - db - 1, sx - sy - db - 1);
-            [upper, lower]
+            let (us, ue) = (sx + sy + db + 1, sx - sy + db + 1);
+            let (ls, le) = (sx + sy - db - 1, sx - sy - db - 1);
+            [(us, ue), (ls, le), (us + 1, ue + 1), (ls - 1, le - 1)]
         })
         .unzip();
 
+    const MAX: isize = 4_000_000;
+    let sum_bounds = |s| [(s, 0), (0, s), (MAX, s - MAX), (s - MAX, MAX)];
+    let diff_bounds = |d| [(d, 0), (0, -d), (MAX, MAX - d), (MAX + d, MAX)];
+
     itertools::iproduct!(&sums, &diffs)
         .map(|(&sum, &diff)| ((sum + diff) / 2, (sum - diff) / 2))
-        .filter(|&(x, y)| 0 <= x && x <= 4000000 && 0 <= y && y <= 4000000)
+        .chain(sums.iter().flat_map(|&s| sum_bounds(s)))
+        .chain(diffs.iter().flat_map(|&d| diff_bounds(d)))
+        .filter(|&(x, y)| 0 <= x && x <= MAX && 0 <= y && y <= MAX)
         .find(|&(x, y)| {
             input.iter().all(|&((sx, sy), (bx, by))| {
                 let db = isize::abs(sx - bx) + isize::abs(sy - by);
@@ -73,6 +76,6 @@ pub fn part2(input: &Input) -> usize {
                 dc > db
             })
         })
-        .map(|(x, y)| (4000000 * x + y) as usize)
+        .map(|(x, y)| (MAX * x + y) as usize)
         .expect("Invalid input")
 }
