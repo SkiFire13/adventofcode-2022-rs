@@ -13,13 +13,8 @@ pub fn input_generator(input: &str) -> Input<'_> {
         })
         .collect::<Vec<(_, Vec<_>)>>();
 
-    let mut commands = &commands[..];
     let mut root = Dir::default();
-
-    assert_eq!(commands[0].0, "cd /");
-    while commands.len() != 0 {
-        commands = parse_dir(&mut root, &commands[1..]);
-    }
+    parse_dir(&mut root, &mut &commands[1..]);
     root
 }
 
@@ -33,40 +28,24 @@ pub struct Dir<'a> {
     files: HashMap<&'a str, File<'a>>,
 }
 
-fn parse_dir<'a, 'b>(
-    curr_dir: &mut Dir<'a>,
-    mut input: &'b [(&'a str, Vec<&'a str>)],
-) -> &'b [(&'a str, Vec<&'a str>)] {
-    loop {
-        let [(command, output), ..] = input else { return &[] };
-        match &command[..2] {
-            "ls" => {
-                for line in output {
-                    let (dirsize, name) = line.split_once(' ').expect("Invalid input");
-                    let file = if dirsize == "dir" {
-                        File::Dir(Dir::default())
-                    } else {
-                        File::File(dirsize.parse().expect("Invalid input"))
-                    };
-                    curr_dir.files.insert(name, file);
-                }
+fn parse_dir<'a, 'b>(curr_dir: &mut Dir<'a>, input: &mut &'b [(&'a str, Vec<&'a str>)]) {
+    while let Some(((command, output), rest)) = input.split_first() {
+        *input = rest;
+        match *command {
+            "ls" => curr_dir.files.extend(output.iter().map(|line| {
+                let (dirsize, name) = line.split_once(' ').expect("Invalid input");
+                let file = match dirsize {
+                    "dir" => File::Dir(Dir::default()),
+                    _ => File::File(dirsize.parse().expect("Invalid input")),
+                };
+                (name, file)
+            })),
+            "cd .." => return,
+            cd => {
+                let Some(File::Dir(dir)) = curr_dir.files.get_mut(&cd[3..]) else { panic!() };
+                parse_dir(dir, input);
             }
-            "cd" => match &command[3..] {
-                ".." | "/" => return input,
-                dir => {
-                    let Some(File::Dir(dir)) = curr_dir.files.get_mut(&dir) else { panic!() };
-                    input = parse_dir(dir, &input[1..]);
-                    let [(command, _), ..] = input else { return &[] };
-                    match *command {
-                        "cd .." => {}
-                        "cd /" => return input,
-                        _ => panic!("Invalid state"),
-                    }
-                }
-            },
-            _ => panic!("Invalid input"),
         }
-        input = &input[1..]
     }
 }
 
@@ -92,8 +71,7 @@ where
                 }
             }
         }
-        acc = finalize(acc, total);
-        (total, acc)
+        (total, finalize(acc, total))
     }
 
     helper(dir, initial, &merge, &finalize).1
@@ -113,10 +91,9 @@ pub fn part2(input: &Input) -> usize {
     let required = total - 40_000_000;
 
     generic_sum(input, usize::MAX, min, |acc, total| {
-        if total >= required {
-            min(total, acc)
-        } else {
-            acc
+        match total >= required {
+            true => min(total, acc),
+            false => acc,
         }
     })
 }
