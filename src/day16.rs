@@ -94,11 +94,16 @@ fn solve(input: &Input, time: usize, time2: usize) -> usize {
     let mut best = 0;
     let mut queue = BinaryHeap::from_iter([initial]);
     let mut seen = FxHashSet::default();
-    while let Some(data) = queue.pop() {
+    while let Some(mut data) = queue.pop() {
         best = max(best, data.pressure);
 
         if data.upper_bound <= best {
             break;
+        }
+
+        if data.time < data.time2 {
+            swap(&mut data.time, &mut data.time2);
+            swap(&mut data.node, &mut data.node2);
         }
 
         if !seen.insert(NodeData { upper_bound: 0, pressure: 0, ..data }) {
@@ -108,8 +113,8 @@ fn solve(input: &Input, time: usize, time2: usize) -> usize {
         let upper_bound = |data: NodeData| {
             let mut upper_bound = data.pressure;
             let mut opened = data.opened;
-            let mut time = data.time;
-            let mut time2 = data.time2;
+            let mut time = max(data.time, data.time2);
+            let mut time2 = min(data.time, data.time2);
             'outer: loop {
                 for &(id, d) in &min_distances[time] {
                     if opened & (1 << id) == 0 {
@@ -128,10 +133,6 @@ fn solve(input: &Input, time: usize, time2: usize) -> usize {
             if time_needed < data.time && (data.opened & (1 << node)) == 0 {
                 let time = data.time - (time_needed + 1);
                 let mut data = NodeData { node, time, ..data };
-                if data.time < data.time2 {
-                    swap(&mut data.time, &mut data.time2);
-                    swap(&mut data.node, &mut data.node2);
-                }
                 data.pressure += time * flows[node];
                 data.opened |= 1 << node;
                 data.upper_bound = upper_bound(data);
@@ -144,7 +145,9 @@ fn solve(input: &Input, time: usize, time2: usize) -> usize {
         if data.time2 != 0 {
             let mut data = NodeData { time: 0, ..data };
             data.upper_bound = upper_bound(data);
-            queue.push(data);
+            if data.upper_bound > best {
+                queue.push(data);
+            }
         }
     }
 
