@@ -20,14 +20,23 @@ fn solve(input: &Input, factor: i64, iters: usize) -> i64 {
 
     let mut idxs = (0..len).map(|i| i / bucket_size).collect::<Vec<_>>();
 
-    fn get(buckets: &[Vec<usize>], mut bucket: usize, pos: usize, offset: usize) -> (usize, usize) {
+    let get = |buckets: &[Vec<usize>], mut bucket: usize, pos, offset| {
         let mut offset = pos + offset;
-        while offset > buckets[bucket].len() {
-            offset -= buckets[bucket].len();
-            bucket = (bucket + 1) % buckets.len();
+        if offset < len / 2 {
+            while offset > buckets[bucket].len() {
+                offset -= buckets[bucket].len();
+                bucket = (bucket + 1) % buckets.len();
+            }
+            (bucket, offset)
+        } else {
+            offset = len - 1 - (offset - buckets[bucket].len());
+            while offset >= buckets[bucket].len() {
+                offset -= buckets[bucket].len();
+                bucket = bucket.checked_sub(1).unwrap_or(buckets.len() - 1);
+            }
+            (bucket, buckets[bucket].len() - offset)
         }
-        (bucket, offset)
-    }
+    };
 
     for _ in 0..iters {
         for node in 0..len {
