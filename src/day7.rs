@@ -1,20 +1,18 @@
 #[allow(unused_imports)]
 use super::prelude::*;
+use std::ops::Add;
+
 type Input<'input> = Dir<'input>;
 
 pub fn input_generator(input: &str) -> Input<'_> {
-    let commands = input
+    let mut commands = input
         .trim_start_matches("$ ")
         .split("\n$ ")
-        .map(|command| {
-            let (command, output) = command.split_once('\n').unwrap_or((command, ""));
-            assert!(&command[..2] != "cd" || output.is_empty());
-            (command, output.lines().collect())
-        })
-        .collect::<Vec<(_, Vec<_>)>>();
+        .skip(1)
+        .map(|command| command.split_once('\n').unwrap_or((command, "")));
 
     let mut root = Dir::default();
-    parse_dir(&mut root, &mut &commands[1..]);
+    exec_in_dir(&mut root, &mut commands);
     root
 }
 
@@ -28,11 +26,10 @@ pub struct Dir<'a> {
     files: HashMap<&'a str, File<'a>>,
 }
 
-fn parse_dir<'a, 'b>(curr_dir: &mut Dir<'a>, input: &mut &'b [(&'a str, Vec<&'a str>)]) {
-    while let Some(((command, output), rest)) = input.split_first() {
-        *input = rest;
-        match *command {
-            "ls" => curr_dir.files.extend(output.iter().map(|line| {
+fn exec_in_dir<'a>(dir: &mut Dir<'a>, cmds: &mut impl Iterator<Item = (&'a str, &'a str)>) {
+    while let Some((command, output)) = cmds.next() {
+        match command {
+            "ls" => dir.files.extend(output.lines().map(|line| {
                 let (dirsize, name) = line.split_once(' ').expect("Invalid input");
                 let file = match dirsize {
                     "dir" => File::Dir(Dir::default()),
@@ -42,14 +39,16 @@ fn parse_dir<'a, 'b>(curr_dir: &mut Dir<'a>, input: &mut &'b [(&'a str, Vec<&'a 
             })),
             "cd .." => return,
             cd => {
-                let Some(File::Dir(dir)) = curr_dir.files.get_mut(&cd[3..]) else { panic!() };
-                parse_dir(dir, input);
+                let Some(File::Dir(dir)) = dir.files.get_mut(&cd[3..]) else {
+                    panic!()
+                };
+                exec_in_dir(dir, cmds);
             }
         }
     }
 }
 
-fn generic_sum<M, F>(dir: &Dir, initial: usize, merge: M, finalize: F) -> usize
+fn fold<M, F>(dir: &Dir, initial: usize, merge: M, finalize: F) -> usize
 where
     M: Fn(usize, usize) -> usize,
     F: Fn(usize, usize) -> usize,
@@ -61,7 +60,7 @@ where
     {
         let mut total = 0;
         let mut acc = initial;
-        for (_, file) in &dir.files {
+        for file in dir.files.values() {
             match file {
                 File::File(size) => total += size,
                 File::Dir(dir) => {
@@ -78,19 +77,16 @@ where
 }
 
 pub fn part1(input: &Input) -> usize {
-    generic_sum(
-        input,
-        0,
-        |acc, child| acc + child,
-        |acc, total| acc + if total < 100_000 { total } else { 0 },
-    )
+    fold(input, 0, usize::add, |acc, total| {
+        acc + if total < 100_000 { total } else { 0 }
+    })
 }
 
 pub fn part2(input: &Input) -> usize {
-    let total = generic_sum(input, 0, |_, _| 0, |_, total| total);
+    let total = fold(input, 0, |_, _| 0, |_, total| total);
     let required = total - 40_000_000;
 
-    generic_sum(input, usize::MAX, min, |acc, total| {
+    fold(input, usize::MAX, usize::min, |acc, total| {
         match total >= required {
             true => min(total, acc),
             false => acc,
